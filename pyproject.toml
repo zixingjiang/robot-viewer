@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [{ name = "Zixing Jiang", email = "ZixingJiang@outlook.com" }]
-requires-python = ">=3.14"
+requires-python = ">=3.13,<3.14"
 dependencies = [
     "mypy>=1.19.1",
     "tyro>=1.0.9",
