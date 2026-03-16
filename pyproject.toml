@@ -1,0 +1,20 @@
+[project]
+name = "robot-viewer"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [{ name = "Zixing Jiang", email = "ZixingJiang@outlook.com" }]
+requires-python = ">=3.14"
+dependencies = [
+    "mypy>=1.19.1",
+    "tyro>=1.0.9",
+    "viser>=1.0.24",
+    "yourdfpy>=0.0.60",
+]
+
+[project.scripts]
+robot-viewer = "robot_viewer:main"
+
+[build-system]
+requires = ["uv_build>=0.10.10,<0.11.0"]
+build-backend = "uv_build"
