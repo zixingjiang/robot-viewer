@@ -99,10 +99,10 @@ def main(
 
     server = viser.ViserServer(host=host, port=port, label=label)
 
-    status_text = server.gui.add_text("Status", "Upload a URDF file to begin.")
+    status_text = server.gui.add_text("Status", "Open a URDF file to begin.")
 
     upload_button = server.gui.add_upload_button(
-        "Upload URDF",
+        "Open URDF",
         mime_type="*/*",
         hint="Select a URDF file (.urdf, .xml).",
     )
@@ -145,7 +145,7 @@ def main(
         state.current_urdf = viser_urdf
 
         # Build robot controls.
-        state.control_folder_handle = server.gui.add_folder("Robot controls")
+        state.control_folder_handle = server.gui.add_folder("Robot joint controls")
         with state.control_folder_handle:
             slider_handles, initial_config = _create_robot_control_sliders(
                 server, viser_urdf
@@ -157,7 +157,7 @@ def main(
             if slider_handles:
                 viser_urdf.update_cfg(np.zeros(len(slider_handles)))
 
-            reset_button = server.gui.add_button("Reset pose")
+            reset_button = server.gui.add_button("Reset joints")
 
             def _on_reset(_):
                 if state.slider_handles is None or state.initial_config is None:
