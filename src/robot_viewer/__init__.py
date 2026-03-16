@@ -29,16 +29,22 @@ class _ViewerState:
     control_folder_handle: Optional[GuiFolderHandle] = None
     slider_handles: Optional[list[viser.GuiInputHandle[float]]] = None
     initial_config: Optional[list[float]] = None
+    joint_limits: Optional[list[tuple[float, float]]] = None
     tmp_dir: str = ""
 
 
 def _create_robot_control_sliders(
     server: viser.ViserServer, viser_urdf: ViserUrdf
-) -> tuple[list[viser.GuiInputHandle[float]], list[float]]:
+) -> tuple[
+    list[viser.GuiInputHandle[float]],
+    list[float],
+    list[tuple[float, float]],
+]:
     """Create sliders to control joints for a loaded URDF."""
 
     slider_handles: list[viser.GuiInputHandle[float]] = []
     initial_config: list[float] = []
+    joint_limits: list[tuple[float, float]] = []
 
     for joint_name, (lower, upper) in viser_urdf.get_actuated_joint_limits().items():
         lower = lower if lower is not None else -np.pi
@@ -65,8 +71,9 @@ def _create_robot_control_sliders(
         slider.on_update(_on_slider_update)
         slider_handles.append(slider)
         initial_config.append(initial_pos)
+        joint_limits.append((lower, upper))
 
-    return slider_handles, initial_config
+    return slider_handles, initial_config, joint_limits
 
 
 def _safe_write_file(uploaded_file: UploadedFile, tmp_dir: str) -> str:
@@ -122,6 +129,11 @@ def main(
                 pass
             state.control_folder_handle = None
 
+        # Clear any cached UI state so controls aren't referenced after removal.
+        state.slider_handles = None
+        state.initial_config = None
+        state.joint_limits = None
+
     def _load_urdf_file(path: str) -> None:
         _clear_previous_robot()
 
@@ -147,15 +159,27 @@ def main(
         # Build robot controls.
         state.control_folder_handle = server.gui.add_folder("Robot joint controls")
         with state.control_folder_handle:
-            slider_handles, initial_config = _create_robot_control_sliders(
-                server, viser_urdf
+            slider_handles, initial_config, joint_limits = (
+                _create_robot_control_sliders(server, viser_urdf)
             )
             state.slider_handles = slider_handles
             state.initial_config = initial_config
+            state.joint_limits = joint_limits
 
             # Ensure the robot starts in the zero joint configuration by default.
             if slider_handles:
                 viser_urdf.update_cfg(np.zeros(len(slider_handles)))
+
+            randomize_button = server.gui.add_button("Randomize joints")
+
+            def _on_randomize(_):
+                if state.slider_handles is None or state.joint_limits is None:
+                    return
+
+                for s, (lower, upper) in zip(state.slider_handles, state.joint_limits):
+                    s.value = float(np.random.uniform(lower, upper))
+
+            randomize_button.on_click(_on_randomize)
 
             reset_button = server.gui.add_button("Reset joints")
 
