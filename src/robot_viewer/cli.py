@@ -19,7 +19,6 @@ def main(
     port: int = 8080,
     label: Optional[str] = "Robot Viewer",
     load_meshes: bool = True,
-    load_collision_meshes: bool = False,
     show_grid: bool = True,
 ) -> None:
     """Start a robot viewer server.
@@ -58,7 +57,6 @@ def main(
                 path,
                 status_text,
                 load_meshes=load_meshes,
-                load_collision_meshes=load_collision_meshes,
                 show_grid=show_grid,
             )
             status_text.value = f"Loaded {uploaded.name}."

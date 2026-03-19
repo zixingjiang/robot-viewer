@@ -14,6 +14,7 @@ from viser._gui_handles import (
     GuiFolderHandle,
 )
 from viser._scene_handles import TransformControlsHandle
+from viser._scene_handles import FrameHandle, Gui3dContainerHandle
 from viser.extras import ViserUrdf
 
 
@@ -31,6 +32,16 @@ class ViewerState:
     randomize_button: Optional[GuiButtonHandle] = None
     reset_button: Optional[GuiButtonHandle] = None
     cartesian_mode_checkbox: Optional[GuiCheckboxHandle] = None
+    cartesian_folder_handle: Optional[GuiFolderHandle] = None
+    visibility_folder_handle: Optional[GuiFolderHandle] = None
+    visibility_visual_checkbox: Optional[GuiCheckboxHandle] = None
+    visibility_frames_checkbox: Optional[GuiCheckboxHandle] = None
+    visibility_frame_names_checkbox: Optional[GuiCheckboxHandle] = None
+    show_visual_meshes: bool = True
+    show_link_frames: bool = False
+    show_frame_names: bool = False
+    link_frame_handles: dict[str, FrameHandle] = field(default_factory=dict)
+    frame_name_handles: dict[str, Gui3dContainerHandle] = field(default_factory=dict)
     cartesian_frame_dropdown: Optional[GuiDropdownHandle[str]] = None
     cartesian_target_handle: Optional[TransformControlsHandle] = None
     ik_configuration: Optional[pink.Configuration] = None
