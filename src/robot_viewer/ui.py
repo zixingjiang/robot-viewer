@@ -149,7 +149,7 @@ def create_robot_control_sliders(
     return slider_handles, joint_names, initial_config, joint_limits
 
 
-def clear_previous_robot(state: ViewerState) -> None:
+def clear_previous_robot(server: viser.ViserServer, state: ViewerState) -> None:
     state.ik_enabled = False
 
     if state.cartesian_target_handle is not None:
@@ -159,14 +159,18 @@ def clear_previous_robot(state: ViewerState) -> None:
             pass
         state.cartesian_target_handle = None
 
-    if state.current_urdf is not None:
+    if state.current_root_name is not None:
         try:
-            state.current_urdf.remove()
+            # Remove the whole robot subtree in one call to avoid duplicate
+            # child removals that trigger viser warnings.
+            server.scene.remove_by_name(state.current_root_name)
         except Exception:
             pass
-        state.current_urdf = None
 
-    _remove_link_frame_visuals(state)
+    state.current_urdf = None
+    state.current_root_name = None
+    state.link_frame_handles.clear()
+    state.frame_name_handles.clear()
 
     if state.control_folder_handle is not None:
         try:
@@ -217,7 +221,7 @@ def load_urdf_file(
     load_meshes: bool,
     show_grid: bool,
 ) -> None:
-    clear_previous_robot(state)
+    clear_previous_robot(server, state)
 
     root_node_name = f"/robot_{int(time.time() * 1000)}"
     state.current_root_name = root_node_name
