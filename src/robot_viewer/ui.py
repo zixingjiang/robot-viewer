@@ -101,6 +101,28 @@ def _create_link_frame_visuals(server: viser.ViserServer, state: ViewerState) ->
     update_link_frame_visuals(state)
 
 
+def _apply_joint_configuration(
+    state: ViewerState,
+    values: np.ndarray,
+    *,
+    update_sliders: bool,
+) -> None:
+    """Apply all joint values in one batched update."""
+    if state.current_urdf is None:
+        return
+
+    if update_sliders and state.slider_handles is not None:
+        state.suppress_slider_callbacks = True
+        try:
+            for slider, value in zip(state.slider_handles, values):
+                slider.value = float(value)
+        finally:
+            state.suppress_slider_callbacks = False
+
+    state.current_urdf.update_cfg(values)
+    update_link_frame_visuals(state)
+
+
 def create_robot_control_sliders(
     server: viser.ViserServer, viser_urdf: ViserUrdf, state: ViewerState
 ) -> tuple[
@@ -135,7 +157,9 @@ def create_robot_control_sliders(
         )
 
         def _on_slider_update(_event: object, handles=slider_handles):
-            if state.ik_enabled and not state.suppress_slider_callbacks:
+            if state.suppress_slider_callbacks:
+                return
+            if state.ik_enabled:
                 return
             viser_urdf.update_cfg(np.array([h.value for h in handles]))
             update_link_frame_visuals(state)
@@ -304,8 +328,14 @@ def load_urdf_file(
             if state.slider_handles is None or state.joint_limits is None:
                 return
 
-            for slider, (lower, upper) in zip(state.slider_handles, state.joint_limits):
-                slider.value = float(np.random.uniform(lower, upper))
+            randomized = np.array(
+                [
+                    np.random.uniform(lower, upper)
+                    for lower, upper in state.joint_limits
+                ],
+                dtype=float,
+            )
+            _apply_joint_configuration(state, randomized, update_sliders=True)
 
         randomize_button.on_click(_on_randomize)
 
@@ -316,8 +346,8 @@ def load_urdf_file(
             if state.slider_handles is None or state.initial_config is None:
                 return
 
-            for slider, init in zip(state.slider_handles, state.initial_config):
-                slider.value = init
+            reset_cfg = np.array(state.initial_config, dtype=float)
+            _apply_joint_configuration(state, reset_cfg, update_sliders=True)
 
         reset_button.on_click(_on_reset)
 
