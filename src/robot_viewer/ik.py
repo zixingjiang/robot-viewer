@@ -68,6 +68,19 @@ def _update_link_frame_visuals_from_state(state: ViewerState) -> None:
             name_handle.visible = state.show_frame_names
 
 
+def _get_frame_pose_from_viewer(
+    state: ViewerState, frame_name: str
+) -> np.ndarray | None:
+    """Get frame pose from yourdfpy visualization state when available."""
+    if state.current_urdf is None:
+        return None
+
+    try:
+        return np.array(state.current_urdf._urdf.get_transform(frame_name), copy=True)
+    except Exception:
+        return None
+
+
 def setup_cartesian_controls(
     server: viser.ViserServer,
     state: ViewerState,
@@ -95,11 +108,20 @@ def setup_cartesian_controls(
         state.ik_joint_name_to_q_index = build_joint_name_to_q_index(pin_model)
         state.ik_solver = pick_qp_solver()
 
-        frame_options = [
+        pin_frame_names = {
             frame.name
             for frame in pin_model.frames
             if frame.name != "universe" and frame.name
-        ]
+        }
+        frame_options = []
+        if state.current_urdf is not None:
+            for link_name in state.current_urdf._urdf.link_map.keys():
+                if link_name in pin_frame_names:
+                    frame_options.append(link_name)
+
+        if not frame_options:
+            frame_options = sorted(pin_frame_names)
+
         if not frame_options:
             raise RuntimeError("No valid frames found for Cartesian target")
 
@@ -197,6 +219,15 @@ def setup_cartesian_controls(
                 frame_pose = state.ik_configuration.get_transform_frame_to_world(
                     frame_name
                 ).np
+
+                viewer_frame_pose = _get_frame_pose_from_viewer(state, frame_name)
+                if viewer_frame_pose is not None:
+                    frame_pose = viewer_frame_pose
+
+                target = frame_task.transform_target_to_world
+                if target is not None:
+                    target.translation = frame_pose[:3, 3].copy()
+                    target.rotation = frame_pose[:3, :3].copy()
 
             if state.cartesian_target_handle is not None:
                 state.cartesian_target_handle.position = (
