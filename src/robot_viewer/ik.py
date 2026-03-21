@@ -67,6 +67,41 @@ def _update_link_frame_visuals_from_state(state: ViewerState) -> None:
             )
             name_handle.visible = state.show_frame_names
 
+    if (
+        state.transform_from_dropdown is None
+        or state.transform_to_dropdown is None
+        or state.transform_translation_text is None
+        or state.transform_rotation_text is None
+    ):
+        return
+
+    try:
+        world_from = urdf.get_transform(state.transform_from_dropdown.value)
+        world_to = urdf.get_transform(state.transform_to_dropdown.value)
+        from_to = np.linalg.inv(world_from) @ world_to
+
+        translation = from_to[:3, 3]
+        rotation_wxyz = rotation_matrix_to_wxyz(from_to[:3, :3])
+
+        state.suppress_transform_text_callbacks = True
+        try:
+            state.transform_translation_text.value = (
+                f"{translation[0]:.4f}, {translation[1]:.4f}, {translation[2]:.4f}"
+            )
+            state.transform_rotation_text.value = (
+                f"{rotation_wxyz[0]:.4f}, {rotation_wxyz[1]:.4f}, "
+                f"{rotation_wxyz[2]:.4f}, {rotation_wxyz[3]:.4f}"
+            )
+        finally:
+            state.suppress_transform_text_callbacks = False
+    except Exception:
+        state.suppress_transform_text_callbacks = True
+        try:
+            state.transform_translation_text.value = "N/A"
+            state.transform_rotation_text.value = "N/A"
+        finally:
+            state.suppress_transform_text_callbacks = False
+
 
 def _get_frame_pose_from_viewer(
     state: ViewerState, frame_name: str

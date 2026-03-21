@@ -33,6 +33,7 @@ class ViewerState:
     reset_button: Optional[GuiButtonHandle] = None
     cartesian_mode_checkbox: Optional[GuiCheckboxHandle] = None
     cartesian_folder_handle: Optional[GuiFolderHandle] = None
+    transform_folder_handle: Optional[GuiFolderHandle] = None
     visibility_folder_handle: Optional[GuiFolderHandle] = None
     visibility_visual_checkbox: Optional[GuiCheckboxHandle] = None
     visibility_frames_checkbox: Optional[GuiCheckboxHandle] = None
@@ -45,6 +46,10 @@ class ViewerState:
     link_frame_handles: dict[str, FrameHandle] = field(default_factory=dict)
     frame_name_handles: dict[str, Gui3dContainerHandle] = field(default_factory=dict)
     cartesian_frame_dropdown: Optional[GuiDropdownHandle[str]] = None
+    transform_from_dropdown: Optional[GuiDropdownHandle[str]] = None
+    transform_to_dropdown: Optional[GuiDropdownHandle[str]] = None
+    transform_translation_text: Optional[viser.GuiInputHandle[str]] = None
+    transform_rotation_text: Optional[viser.GuiInputHandle[str]] = None
     cartesian_target_handle: Optional[TransformControlsHandle] = None
     ik_configuration: Optional[pink.Configuration] = None
     ik_tasks: Optional[list[Any]] = None
@@ -61,5 +66,6 @@ class ViewerState:
     ik_running: bool = True
     ik_dt: float = 1.0 / 120.0
     suppress_slider_callbacks: bool = False
+    suppress_transform_text_callbacks: bool = False
     ik_lock: threading.Lock = field(default_factory=threading.Lock)
     tmp_dir: str = ""

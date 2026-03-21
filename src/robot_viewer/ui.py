@@ -58,6 +58,50 @@ def update_link_frame_visuals(state: ViewerState) -> None:
             )
             name_handle.visible = state.show_frame_names
 
+    _update_transform_display(state)
+
+
+def _update_transform_display(state: ViewerState) -> None:
+    if (
+        state.current_urdf is None
+        or state.transform_from_dropdown is None
+        or state.transform_to_dropdown is None
+        or state.transform_translation_text is None
+        or state.transform_rotation_text is None
+    ):
+        return
+
+    from_frame = state.transform_from_dropdown.value
+    to_frame = state.transform_to_dropdown.value
+
+    try:
+        urdf = state.current_urdf._urdf
+        world_from = urdf.get_transform(from_frame)
+        world_to = urdf.get_transform(to_frame)
+        from_to = np.linalg.inv(world_from) @ world_to
+
+        translation = from_to[:3, 3]
+        rotation_wxyz = rotation_matrix_to_wxyz(from_to[:3, :3])
+
+        state.suppress_transform_text_callbacks = True
+        try:
+            state.transform_translation_text.value = (
+                f"{translation[0]:.4f}, {translation[1]:.4f}, {translation[2]:.4f}"
+            )
+            state.transform_rotation_text.value = (
+                f"{rotation_wxyz[0]:.4f}, {rotation_wxyz[1]:.4f}, "
+                f"{rotation_wxyz[2]:.4f}, {rotation_wxyz[3]:.4f}"
+            )
+        finally:
+            state.suppress_transform_text_callbacks = False
+    except Exception:
+        state.suppress_transform_text_callbacks = True
+        try:
+            state.transform_translation_text.value = "N/A"
+            state.transform_rotation_text.value = "N/A"
+        finally:
+            state.suppress_transform_text_callbacks = False
+
 
 def _create_link_frame_visuals(server: viser.ViserServer, state: ViewerState) -> None:
     if state.current_urdf is None or state.current_root_name is None:
@@ -235,6 +279,13 @@ def clear_previous_robot(server: viser.ViserServer, state: ViewerState) -> None:
             pass
         state.cartesian_folder_handle = None
 
+    if state.transform_folder_handle is not None:
+        try:
+            state.transform_folder_handle.remove()
+        except Exception:
+            pass
+        state.transform_folder_handle = None
+
     state.slider_handles = None
     state.joint_names = None
     state.initial_config = None
@@ -247,6 +298,10 @@ def clear_previous_robot(server: viser.ViserServer, state: ViewerState) -> None:
     state.visibility_frame_names_checkbox = None
     state.visibility_ground_checkbox = None
     state.cartesian_frame_dropdown = None
+    state.transform_from_dropdown = None
+    state.transform_to_dropdown = None
+    state.transform_translation_text = None
+    state.transform_rotation_text = None
     state.ik_configuration = None
     state.ik_tasks = None
     state.ik_frame_task = None
@@ -387,5 +442,55 @@ def load_urdf_file(
         setup_cartesian_controls(
             server, state, path, status_text, cartesian_mode_checkbox
         )
+
+    state.transform_folder_handle = server.gui.add_folder("Get Transform")
+    with state.transform_folder_handle:
+        frame_options = list(urdf.link_map.keys())
+        initial_frame = frame_options[0]
+        initial_to_frame = initial_frame
+        if state.cartesian_frame_dropdown is not None:
+            cartesian_target_frame = state.cartesian_frame_dropdown.value
+            if cartesian_target_frame in frame_options:
+                initial_to_frame = cartesian_target_frame
+
+        from_dropdown = server.gui.add_dropdown(
+            "From",
+            options=frame_options,
+            initial_value=initial_frame,
+        )
+        to_dropdown = server.gui.add_dropdown(
+            "To",
+            options=frame_options,
+            initial_value=initial_to_frame,
+        )
+        translation_text = server.gui.add_text("Translation (x,y,z)", "")
+        rotation_text = server.gui.add_text("Rotation (w,x,y,z)", "")
+
+        state.transform_from_dropdown = from_dropdown
+        state.transform_to_dropdown = to_dropdown
+        state.transform_translation_text = translation_text
+        state.transform_rotation_text = rotation_text
+
+        @from_dropdown.on_update
+        def _on_transform_frame_change(_event: object) -> None:
+            _update_transform_display(state)
+
+        @to_dropdown.on_update
+        def _on_transform_target_change(_event: object) -> None:
+            _update_transform_display(state)
+
+        @translation_text.on_update
+        def _on_translation_text_edit(_event: object) -> None:
+            if state.suppress_transform_text_callbacks:
+                return
+            _update_transform_display(state)
+
+        @rotation_text.on_update
+        def _on_rotation_text_edit(_event: object) -> None:
+            if state.suppress_transform_text_callbacks:
+                return
+            _update_transform_display(state)
+
+    _update_transform_display(state)
 
     _set_ground_plane_visible(server, state.show_ground_plane)
