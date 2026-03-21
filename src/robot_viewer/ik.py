@@ -126,7 +126,7 @@ def setup_cartesian_controls(
             raise RuntimeError("No valid frames found for Cartesian target")
 
         cartesian_frame_dropdown = server.gui.add_dropdown(
-            "Cartesian target frame",
+            "Target frame",
             options=frame_options,
             initial_value=frame_options[-1],
         )
@@ -143,28 +143,28 @@ def setup_cartesian_controls(
         advanced_folder = server.gui.add_folder("Advanced", expand_by_default=False)
         with advanced_folder:
             frame_task_position_cost_slider = server.gui.add_slider(
-                "Frame Task Position Cost",
+                "Position cost",
                 min=0.0,
                 max=10.0,
                 initial_value=state.ik_frame_position_cost,
                 step=0.1,
             )
             frame_task_orientation_cost_slider = server.gui.add_slider(
-                "Frame Task Orientation Cost",
+                "Orientation cost",
                 min=0.0,
                 max=10.0,
                 initial_value=state.ik_frame_orientation_cost,
                 step=0.1,
             )
             damping_cost_slider = server.gui.add_slider(
-                "Damping Cost",
+                "Damping cost",
                 min=0.0,
                 max=1.0,
                 initial_value=state.ik_damping_cost,
                 step=0.001,
             )
             posture_cost_slider = server.gui.add_slider(
-                "Posture Cost",
+                "Posture cost",
                 min=0.0,
                 max=1.0,
                 initial_value=state.ik_posture_cost,

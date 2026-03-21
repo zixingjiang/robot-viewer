@@ -274,15 +274,15 @@ def load_urdf_file(
     state.visibility_folder_handle = server.gui.add_folder("Visibility")
     with state.visibility_folder_handle:
         show_meshes_cb = server.gui.add_checkbox(
-            "Show meshes",
+            "Meshes",
             initial_value=state.show_visual_meshes,
         )
         show_frames_cb = server.gui.add_checkbox(
-            "Show frames",
+            "Frames",
             initial_value=state.show_link_frames,
         )
         show_frame_names_cb = server.gui.add_checkbox(
-            "Show frame names",
+            "Frame names",
             initial_value=state.show_frame_names,
         )
 
@@ -308,7 +308,7 @@ def load_urdf_file(
 
     show_meshes_cb.visible = load_meshes
 
-    state.control_folder_handle = server.gui.add_folder("Robot joint controls")
+    state.control_folder_handle = server.gui.add_folder("Joint Control")
     with state.control_folder_handle:
         slider_handles, joint_names, initial_config, joint_limits = (
             create_robot_control_sliders(server, viser_urdf, state)
@@ -321,7 +321,7 @@ def load_urdf_file(
         if slider_handles:
             viser_urdf.update_cfg(np.zeros(len(slider_handles)))
 
-        randomize_button = server.gui.add_button("Randomize joints")
+        randomize_button = server.gui.add_button("Randomize")
         state.randomize_button = randomize_button
 
         def _on_randomize(_: object) -> None:
@@ -339,7 +339,7 @@ def load_urdf_file(
 
         randomize_button.on_click(_on_randomize)
 
-        reset_button = server.gui.add_button("Reset joints")
+        reset_button = server.gui.add_button("Reset")
         state.reset_button = reset_button
 
         def _on_reset(_: object) -> None:
@@ -351,10 +351,10 @@ def load_urdf_file(
 
         reset_button.on_click(_on_reset)
 
-    state.cartesian_folder_handle = server.gui.add_folder("Cartesian controls")
+    state.cartesian_folder_handle = server.gui.add_folder("Cartesian Control")
     with state.cartesian_folder_handle:
         cartesian_mode_checkbox = server.gui.add_checkbox(
-            "Cartesian control mode", initial_value=False
+            "Enable", initial_value=False
         )
         state.cartesian_mode_checkbox = cartesian_mode_checkbox
 
