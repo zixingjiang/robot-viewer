@@ -30,6 +30,7 @@ def main(
     """
 
     state = ViewerState(tmp_dir=tempfile.mkdtemp(prefix="robot_viewer_"))
+    state.show_ground_plane = show_grid
 
     server = viser.ViserServer(host=host, port=port, label=label)
 
@@ -57,7 +58,6 @@ def main(
                 path,
                 status_text,
                 load_meshes=load_meshes,
-                show_grid=show_grid,
             )
             status_text.value = f"Loaded {uploaded.name}."
         except Exception as exc:

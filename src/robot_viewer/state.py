@@ -37,9 +37,11 @@ class ViewerState:
     visibility_visual_checkbox: Optional[GuiCheckboxHandle] = None
     visibility_frames_checkbox: Optional[GuiCheckboxHandle] = None
     visibility_frame_names_checkbox: Optional[GuiCheckboxHandle] = None
+    visibility_ground_checkbox: Optional[GuiCheckboxHandle] = None
     show_visual_meshes: bool = True
     show_link_frames: bool = False
     show_frame_names: bool = False
+    show_ground_plane: bool = True
     link_frame_handles: dict[str, FrameHandle] = field(default_factory=dict)
     frame_name_handles: dict[str, Gui3dContainerHandle] = field(default_factory=dict)
     cartesian_frame_dropdown: Optional[GuiDropdownHandle[str]] = None

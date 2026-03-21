@@ -101,6 +101,24 @@ def _create_link_frame_visuals(server: viser.ViserServer, state: ViewerState) ->
     update_link_frame_visuals(state)
 
 
+def _set_ground_plane_visible(server: viser.ViserServer, visible: bool) -> None:
+    try:
+        server.scene.remove_by_name("/grid")
+    except Exception:
+        pass
+
+    if not visible:
+        return
+
+    server.scene.add_grid(
+        "/grid",
+        width=2,
+        height=2,
+        position=(0.0, 0.0, 0.0),
+        infinite_grid=True,
+    )
+
+
 def _apply_joint_configuration(
     state: ViewerState,
     values: np.ndarray,
@@ -227,6 +245,7 @@ def clear_previous_robot(server: viser.ViserServer, state: ViewerState) -> None:
     state.visibility_visual_checkbox = None
     state.visibility_frames_checkbox = None
     state.visibility_frame_names_checkbox = None
+    state.visibility_ground_checkbox = None
     state.cartesian_frame_dropdown = None
     state.ik_configuration = None
     state.ik_tasks = None
@@ -243,7 +262,6 @@ def load_urdf_file(
     path: str,
     status_text: Any,
     load_meshes: bool,
-    show_grid: bool,
 ) -> None:
     clear_previous_robot(server, state)
 
@@ -285,10 +303,15 @@ def load_urdf_file(
             "Frame names",
             initial_value=state.show_frame_names,
         )
+        show_ground_cb = server.gui.add_checkbox(
+            "Ground plane",
+            initial_value=state.show_ground_plane,
+        )
 
     state.visibility_visual_checkbox = show_meshes_cb
     state.visibility_frames_checkbox = show_frames_cb
     state.visibility_frame_names_checkbox = show_frame_names_cb
+    state.visibility_ground_checkbox = show_ground_cb
 
     @show_meshes_cb.on_update
     def _show_meshes(_: object) -> None:
@@ -305,6 +328,11 @@ def load_urdf_file(
     def _show_frame_names(_: object) -> None:
         state.show_frame_names = show_frame_names_cb.value
         update_link_frame_visuals(state)
+
+    @show_ground_cb.on_update
+    def _show_ground(_: object) -> None:
+        state.show_ground_plane = show_ground_cb.value
+        _set_ground_plane_visible(server, state.show_ground_plane)
 
     show_meshes_cb.visible = load_meshes
 
@@ -353,29 +381,11 @@ def load_urdf_file(
 
     state.cartesian_folder_handle = server.gui.add_folder("Cartesian Control")
     with state.cartesian_folder_handle:
-        cartesian_mode_checkbox = server.gui.add_checkbox(
-            "Enable", initial_value=False
-        )
+        cartesian_mode_checkbox = server.gui.add_checkbox("Enable", initial_value=False)
         state.cartesian_mode_checkbox = cartesian_mode_checkbox
 
         setup_cartesian_controls(
             server, state, path, status_text, cartesian_mode_checkbox
         )
 
-    if show_grid:
-        try:
-            server.scene.remove_by_name("/grid")
-        except Exception:
-            pass
-
-        trimesh_scene = viser_urdf._urdf.scene or viser_urdf._urdf.collision_scene
-        server.scene.add_grid(
-            "/grid",
-            width=2,
-            height=2,
-            position=(
-                0.0,
-                0.0,
-                trimesh_scene.bounds[0, 2] if trimesh_scene is not None else 0.0,
-            ),
-        )
+    _set_ground_plane_visible(server, state.show_ground_plane)
