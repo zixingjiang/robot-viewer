@@ -182,30 +182,37 @@ def _set_ground_plane_visible(
     visible: bool,
 ) -> None:
     if not visible:
-        try:
-            server.scene.remove_by_name("/grid")
-        except Exception:
-            pass
-        state.ground_plane_size = (0, 0)
+        if state.ground_plane_handle is not None:
+            state.ground_plane_handle.visible = False
         return
 
     width, height = _compute_ground_plane_size(state)
 
-    if state.ground_plane_size == (width, height):
+    if state.ground_plane_handle is not None and state.ground_plane_size == (
+        width,
+        height,
+    ):
+        state.ground_plane_handle.visible = True
         return
 
-    try:
-        server.scene.remove_by_name("/grid")
-    except Exception:
-        pass
+    if state.ground_plane_handle is not None:
+        try:
+            state.ground_plane_handle.remove()
+        except Exception:
+            try:
+                server.scene.remove_by_name("/grid")
+            except Exception:
+                pass
+        state.ground_plane_handle = None
 
-    server.scene.add_grid(
+    state.ground_plane_handle = server.scene.add_grid(
         "/grid",
         width=width,
         height=height,
         position=(0.0, 0.0, 0.0),
         infinite_grid=False,
     )
+    state.ground_plane_handle.visible = True
     state.ground_plane_size = (width, height)
 
 
@@ -283,6 +290,17 @@ def create_robot_control_sliders(
 
 def clear_previous_robot(server: viser.ViserServer, state: ViewerState) -> None:
     state.ik_enabled = False
+
+    if state.ground_plane_handle is not None:
+        try:
+            state.ground_plane_handle.remove()
+        except Exception:
+            try:
+                server.scene.remove_by_name("/grid")
+            except Exception:
+                pass
+        state.ground_plane_handle = None
+        state.ground_plane_size = (0, 0)
 
     if state.cartesian_target_handle is not None:
         try:
