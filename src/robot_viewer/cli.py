@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import threading
+import webbrowser
 from typing import Optional
 
 import tyro
@@ -20,6 +21,7 @@ def main(
     label: Optional[str] = "Robot Viewer",
     load_meshes: bool = True,
     show_grid: bool = True,
+    open_browser: bool = True,
 ) -> None:
     """Start a robot viewer server.
 
@@ -33,6 +35,19 @@ def main(
     state.show_ground_plane = show_grid
 
     server = viser.ViserServer(host=host, port=port, label=label)
+
+    if open_browser:
+        browser_host = host
+        if host in {"0.0.0.0", "::"}:
+            browser_host = "localhost"
+        viewer_url = f"http://{browser_host}:{port}"
+        # Open asynchronously so startup is not blocked by browser behavior.
+        threading.Thread(
+            target=webbrowser.open,
+            args=(viewer_url,),
+            kwargs={"new": 2},
+            daemon=True,
+        ).start()
 
     status_text = setup_viewer_actions(server)
     file_text, upload_button = setup_file_actions(server)
