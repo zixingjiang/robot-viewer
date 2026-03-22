@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import io
 import math
+import re
 import time
-import uuid
 from typing import Any, Callable
 
 import imageio.v3 as iio
@@ -29,6 +29,65 @@ from .state import ViewerState
 
 
 _MAX_GROUND_PLANE_SAMPLE_LINKS = 128
+_ROBOT_ROOT_RE = re.compile(r"^/robot(?:_[0-9a-f]+)?(?:/|$)")
+
+
+def _discover_robot_roots(server: viser.ViserServer) -> set[str]:
+    scene_handles = getattr(server.scene, "_handle_from_node_name", None)
+    if not isinstance(scene_handles, dict):
+        return set()
+
+    roots: set[str] = set()
+    for node_name in scene_handles.keys():
+        if not _ROBOT_ROOT_RE.match(node_name):
+            continue
+        parts = node_name.split("/", 2)
+        if len(parts) >= 2 and parts[1]:
+            roots.add(f"/{parts[1]}")
+    return roots
+
+
+def _purge_robot_replay_messages(server: viser.ViserServer) -> None:
+    """Drop persisted robot messages so reconnect replay keeps only fresh state."""
+    websock_server = getattr(server, "_websock_server", None)
+    if websock_server is None:
+        return
+
+    broadcast_buffer = getattr(websock_server, "_broadcast_buffer", None)
+    if broadcast_buffer is None:
+        return
+
+    remove_from_buffer = getattr(broadcast_buffer, "remove_from_buffer", None)
+    if remove_from_buffer is None:
+        return
+
+    def _is_robot_message(message: object) -> bool:
+        name = getattr(message, "name", None)
+        return isinstance(name, str) and _ROBOT_ROOT_RE.match(name) is not None
+
+    try:
+        remove_from_buffer(_is_robot_message)
+    except Exception:
+        pass
+
+
+def prune_stale_robot_roots(server: viser.ViserServer, state: ViewerState) -> None:
+    """Remove any robot roots except the currently active one."""
+    discovered_roots = _discover_robot_roots(server)
+    keep_root = state.current_root_name
+
+    for root_name in discovered_roots:
+        if keep_root is not None and root_name == keep_root:
+            continue
+        try:
+            server.scene.remove_by_name(root_name)
+        except Exception:
+            pass
+
+    if keep_root is None:
+        state.robot_root_names.clear()
+    else:
+        state.robot_root_names = {keep_root}
 
 
 def _load_robot_into_viewer(
@@ -39,12 +98,14 @@ def _load_robot_into_viewer(
     status_text: Any,
     load_meshes: bool,
 ) -> None:
+    prune_stale_robot_roots(server, state)
     clear_previous_robot(server, state)
+    _purge_robot_replay_messages(server)
 
-    # Use a UUID suffix so repeated loads in the same millisecond never reuse
-    # the same scene root path.
-    root_node_name = f"/robot_{uuid.uuid4().hex}"
+    # Keep a single stable root so every load replaces the same subtree.
+    root_node_name = "/robot"
     state.current_root_name = root_node_name
+    state.robot_root_names.add(root_node_name)
 
     viser_urdf = ViserUrdf(
         server,
@@ -225,6 +286,10 @@ def _load_robot_into_viewer(
     update_transform_display(state)
 
     _set_ground_plane_visible(server, state, state.show_ground_plane)
+    try:
+        server.flush()
+    except Exception:
+        pass
 
 
 def _remove_link_frame_visuals(state: ViewerState) -> None:
@@ -444,39 +509,67 @@ def clear_previous_robot(server: viser.ViserServer, state: ViewerState) -> None:
     state.ik_enabled = False
 
     previous_urdf = state.current_urdf
+    did_scene_reset = False
 
-    if state.ground_plane_handle is not None:
-        try:
-            state.ground_plane_handle.remove()
-        except Exception:
+    # Force a full live-scene cleanup for already connected tabs so stale
+    # robot nodes cannot remain visible client-side.
+    try:
+        server.scene.reset()
+        server.flush()
+        did_scene_reset = True
+    except Exception:
+        pass
+
+    if not did_scene_reset:
+        if state.ground_plane_handle is not None:
             try:
-                server.scene.remove_by_name("/grid")
+                state.ground_plane_handle.remove()
             except Exception:
-                pass
-        state.ground_plane_handle = None
-        state.ground_plane_size = (0, 0)
-
-    if state.cartesian_target_handle is not None:
-        try:
-            state.cartesian_target_handle.remove()
-        except Exception:
-            pass
-        state.cartesian_target_handle = None
-
-    if state.current_root_name is not None:
-        try:
-            # Remove the whole robot subtree in one call to avoid duplicate
-            # child removals that trigger viser warnings.
-            server.scene.remove_by_name(state.current_root_name)
-        except Exception:
-            if previous_urdf is not None:
                 try:
-                    previous_urdf.remove()
+                    server.scene.remove_by_name("/grid")
                 except Exception:
                     pass
 
+        if state.cartesian_target_handle is not None:
+            try:
+                state.cartesian_target_handle.remove()
+            except Exception:
+                pass
+
+        # Remove all known robot roots so reconnecting clients cannot replay stale
+        # robots that were previously loaded.
+        robot_roots = set(state.robot_root_names)
+        if state.current_root_name is not None:
+            robot_roots.add(state.current_root_name)
+
+        # Viser keeps authoritative scene state server-side. Discover any leftover
+        # robot roots from that registry so reconnecting tabs cannot replay stale
+        # robots even if local tracking missed an earlier root.
+        robot_roots.update(_discover_robot_roots(server))
+
+        removed_any_root = False
+        for root_name in robot_roots:
+            try:
+                # Remove the whole robot subtree in one call to avoid duplicate
+                # child removals that trigger viser warnings.
+                server.scene.remove_by_name(root_name)
+                removed_any_root = True
+            except Exception:
+                pass
+
+        if not removed_any_root and previous_urdf is not None:
+            try:
+                previous_urdf.remove()
+            except Exception:
+                pass
+
+    state.ground_plane_handle = None
+    state.ground_plane_size = (0, 0)
+    state.cartesian_target_handle = None
+
     state.current_urdf = None
     state.current_root_name = None
+    state.robot_root_names.clear()
     state.link_frame_handles.clear()
     state.frame_name_handles.clear()
 

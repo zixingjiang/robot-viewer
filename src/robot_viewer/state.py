@@ -24,6 +24,8 @@ class ViewerState:
 
     current_urdf: Optional[ViserUrdf] = None
     current_root_name: Optional[str] = None
+    robot_root_names: set[str] = field(default_factory=set)
+    load_lock: threading.Lock = field(default_factory=threading.Lock)
     control_folder_handle: Optional[GuiFolderHandle] = None
     slider_handles: Optional[list[viser.GuiInputHandle[float]]] = None
     joint_names: Optional[list[str]] = None
