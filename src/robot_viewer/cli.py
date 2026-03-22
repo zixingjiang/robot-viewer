@@ -34,13 +34,14 @@ def main(
 
     server = viser.ViserServer(host=host, port=port, label=label)
 
-    status_text = server.gui.add_text("Status", "Open a URDF file to begin.")
+    with server.gui.add_folder("File"):
+        status_text = server.gui.add_text("Status", "Open a URDF file to begin.")
 
-    upload_button = server.gui.add_upload_button(
-        "Open URDF",
-        mime_type="*/*",
-        hint="Select a URDF file (.urdf, .xml).",
-    )
+        upload_button = server.gui.add_upload_button(
+            "Open URDF",
+            mime_type="*/*",
+            hint="Select a URDF file (.urdf, .xml).",
+        )
 
     @upload_button.on_upload
     def _on_upload(event: GuiEvent[GuiUploadButtonHandle]) -> None:
