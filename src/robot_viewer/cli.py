@@ -29,7 +29,12 @@ from .utils import safe_write_file
 def main(
     path: Annotated[
         tyro.conf.Positional[Optional[str]],
-        tyro.conf.arg(help="Optional URDF file to open at startup."),
+        tyro.conf.arg(
+            help=(
+                "Optional startup target. Treated as a URDF path by default, "
+                "or as a robot_descriptions entry when --rd is set."
+            )
+        ),
     ] = None,
     host: Annotated[
         str,
@@ -39,6 +44,15 @@ def main(
         int,
         tyro.conf.arg(help="Port to serve the viewer web app on."),
     ] = 8080,
+    rd: Annotated[
+        bool,
+        tyro.conf.arg(
+            help=(
+                "Interpret the positional startup target as a "
+                "robot_descriptions entry name."
+            )
+        ),
+    ] = False,
     open_browser: Annotated[
         bool,
         tyro.conf.arg(help="Automatically open the viewer in a browser tab."),
@@ -73,27 +87,45 @@ def main(
     )
 
     if path is not None:
-        resolved_path = os.path.abspath(path)
-        file_name = os.path.basename(resolved_path)
-
-        if not os.path.isfile(resolved_path):
-            file_text.value = "No file loaded."
-            status_text.value = f"Startup file not found: {resolved_path}"
-        else:
+        if rd:
+            status_text.value = f"Loading {path}..."
             try:
-                status_text.value = f"Loading {file_name}..."
-                load_urdf_file(
+                resolved_name = load_robot_description(
                     server,
                     state,
-                    resolved_path,
+                    path,
                     status_text,
                     load_meshes=load_meshes,
                 )
-                file_text.value = file_name
-                status_text.value = f"Loaded {file_name}."
+                file_text.value = f"{resolved_name} (robot_descriptions)"
+                status_text.value = f"Loaded {resolved_name}."
             except Exception as exc:
                 file_text.value = "No file loaded."
-                status_text.value = f"Failed to load {file_name}: {exc!r}"
+                status_text.value = (
+                    f"Failed to load robot_descriptions entry {path}: {exc!r}"
+                )
+        else:
+            resolved_path = os.path.abspath(path)
+            file_name = os.path.basename(resolved_path)
+
+            if not os.path.isfile(resolved_path):
+                file_text.value = "No file loaded."
+                status_text.value = f"Startup file not found: {resolved_path}"
+            else:
+                try:
+                    status_text.value = f"Loading {file_name}..."
+                    load_urdf_file(
+                        server,
+                        state,
+                        resolved_path,
+                        status_text,
+                        load_meshes=load_meshes,
+                    )
+                    file_text.value = file_name
+                    status_text.value = f"Loaded {file_name}."
+                except Exception as exc:
+                    file_text.value = "No file loaded."
+                    status_text.value = f"Failed to load {file_name}: {exc!r}"
 
     @upload_button.on_upload
     def _on_upload(event: GuiEvent[GuiUploadButtonHandle]) -> None:
