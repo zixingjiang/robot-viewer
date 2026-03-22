@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from importlib import import_module
 import math
 import os
 import time
@@ -10,7 +11,12 @@ import imageio.v3 as iio
 import numpy as np
 import viser
 import yourdfpy  # type: ignore[import]
-from viser._gui_handles import GuiButtonHandle, GuiEvent, GuiUploadButtonHandle
+from viser._gui_handles import (
+    GuiButtonHandle,
+    GuiDropdownHandle,
+    GuiEvent,
+    GuiUploadButtonHandle,
+)
 from viser.extras import ViserUrdf
 
 from .ik import setup_cartesian_controls
@@ -19,6 +25,255 @@ from .utils import rotation_matrix_to_wxyz
 
 
 _MAX_GROUND_PLANE_SAMPLE_LINKS = 128
+
+
+def _get_robot_description_candidates() -> list[str]:
+    try:
+        from robot_descriptions import DESCRIPTIONS
+    except Exception:
+        return []
+
+    urdf_names: list[str] = []
+    for name, description in DESCRIPTIONS.items():
+        if getattr(description, "has_urdf", False):
+            urdf_names.append(name)
+
+    return sorted(urdf_names)
+
+
+def _resolve_robot_description_urdf_path(description_name: str) -> tuple[str, str]:
+    candidates = [description_name]
+    if not description_name.endswith("_description"):
+        candidates.append(f"{description_name}_description")
+
+    module = None
+    resolved_name = ""
+    for candidate in candidates:
+        module_name = f"robot_descriptions.{candidate}"
+        try:
+            module = import_module(module_name)
+            resolved_name = candidate
+            break
+        except ModuleNotFoundError as exc:
+            # Only continue when the description module itself does not exist.
+            # If a nested dependency import fails, surface the original error.
+            if exc.name != module_name:
+                raise
+            continue
+
+    if module is None:
+        raise ModuleNotFoundError(
+            "Could not import robot description "
+            f"'{description_name}' as a robot_descriptions submodule"
+        )
+
+    if hasattr(module, "URDF_PATH"):
+        urdf_path = str(module.URDF_PATH)
+    elif hasattr(module, "XACRO_PATH"):
+        # robot_descriptions resolves Xacro files to a cached URDF.
+        from robot_descriptions._xacro import get_urdf_path
+
+        urdf_path = str(get_urdf_path(module))
+    else:
+        raise RuntimeError(
+            "Selected robot description does not provide URDF or Xacro data"
+        )
+
+    return resolved_name, urdf_path
+
+
+def _load_robot_into_viewer(
+    server: viser.ViserServer,
+    state: ViewerState,
+    urdf: yourdfpy.URDF,
+    source_path: str,
+    status_text: Any,
+    load_meshes: bool,
+) -> None:
+    clear_previous_robot(server, state)
+
+    root_node_name = f"/robot_{int(time.time() * 1000)}"
+    state.current_root_name = root_node_name
+
+    viser_urdf = ViserUrdf(
+        server,
+        urdf,
+        root_node_name=root_node_name,
+        load_meshes=load_meshes,
+        load_collision_meshes=False,
+    )
+    state.current_urdf = viser_urdf
+    state.show_visual_meshes = state.show_visual_meshes and load_meshes
+    if load_meshes:
+        viser_urdf.show_visual = state.show_visual_meshes
+
+    # Creating one frame + one label per link can be expensive on large robots.
+    # Defer this until the user enables frame overlays.
+    if state.show_link_frames or state.show_frame_names:
+        _create_link_frame_visuals(server, state)
+
+    state.visibility_folder_handle = server.gui.add_folder("Visibility")
+    with state.visibility_folder_handle:
+        show_meshes_cb = server.gui.add_checkbox(
+            "Meshes",
+            initial_value=state.show_visual_meshes,
+        )
+        show_frames_cb = server.gui.add_checkbox(
+            "Frames",
+            initial_value=state.show_link_frames,
+        )
+        show_frame_names_cb = server.gui.add_checkbox(
+            "Frame names",
+            initial_value=state.show_frame_names,
+        )
+        show_ground_cb = server.gui.add_checkbox(
+            "Ground plane",
+            initial_value=state.show_ground_plane,
+        )
+
+    state.visibility_visual_checkbox = show_meshes_cb
+    state.visibility_frames_checkbox = show_frames_cb
+    state.visibility_frame_names_checkbox = show_frame_names_cb
+    state.visibility_ground_checkbox = show_ground_cb
+
+    @show_meshes_cb.on_update
+    def _show_meshes(_: object) -> None:
+        state.show_visual_meshes = show_meshes_cb.value
+        if load_meshes:
+            viser_urdf.show_visual = state.show_visual_meshes
+
+    @show_frames_cb.on_update
+    def _show_frames(_: object) -> None:
+        state.show_link_frames = show_frames_cb.value
+        if state.show_link_frames:
+            _ensure_link_frame_visuals(server, state)
+        update_link_frame_visuals(state)
+
+    @show_frame_names_cb.on_update
+    def _show_frame_names(_: object) -> None:
+        state.show_frame_names = show_frame_names_cb.value
+        if state.show_frame_names:
+            _ensure_link_frame_visuals(server, state)
+        update_link_frame_visuals(state)
+
+    @show_ground_cb.on_update
+    def _show_ground(_: object) -> None:
+        state.show_ground_plane = show_ground_cb.value
+        _set_ground_plane_visible(server, state, state.show_ground_plane)
+
+    show_meshes_cb.visible = load_meshes
+
+    state.control_folder_handle = server.gui.add_folder("Joint Control")
+    with state.control_folder_handle:
+        slider_handles, joint_names, initial_config, joint_limits = (
+            create_robot_control_sliders(server, viser_urdf, state)
+        )
+        state.slider_handles = slider_handles
+        state.joint_names = joint_names
+        state.initial_config = initial_config
+        state.joint_limits = joint_limits
+
+        if slider_handles:
+            viser_urdf.update_cfg(np.zeros(len(slider_handles)))
+
+        randomize_button = server.gui.add_button("Randomize")
+        state.randomize_button = randomize_button
+
+        def _on_randomize(_: object) -> None:
+            if state.slider_handles is None or state.joint_limits is None:
+                return
+
+            randomized = np.array(
+                [
+                    np.random.uniform(lower, upper)
+                    for lower, upper in state.joint_limits
+                ],
+                dtype=float,
+            )
+            _apply_joint_configuration(
+                state,
+                randomized,
+                update_sliders=True,
+            )
+
+        randomize_button.on_click(_on_randomize)
+
+        reset_button = server.gui.add_button("Reset")
+        state.reset_button = reset_button
+
+        def _on_reset(_: object) -> None:
+            if state.slider_handles is None or state.initial_config is None:
+                return
+
+            reset_cfg = np.array(state.initial_config, dtype=float)
+            _apply_joint_configuration(
+                state,
+                reset_cfg,
+                update_sliders=True,
+            )
+
+        reset_button.on_click(_on_reset)
+
+    state.cartesian_folder_handle = server.gui.add_folder("Cartesian Control")
+    with state.cartesian_folder_handle:
+        cartesian_mode_checkbox = server.gui.add_checkbox("Enable", initial_value=False)
+        state.cartesian_mode_checkbox = cartesian_mode_checkbox
+
+        setup_cartesian_controls(
+            server, state, source_path, status_text, cartesian_mode_checkbox
+        )
+
+    state.transform_folder_handle = server.gui.add_folder("Get Transform")
+    with state.transform_folder_handle:
+        frame_options = list(urdf.link_map.keys())
+        initial_frame = frame_options[0]
+        initial_to_frame = initial_frame
+        if state.cartesian_frame_dropdown is not None:
+            cartesian_target_frame = state.cartesian_frame_dropdown.value
+            if cartesian_target_frame in frame_options:
+                initial_to_frame = cartesian_target_frame
+
+        from_dropdown = server.gui.add_dropdown(
+            "From",
+            options=frame_options,
+            initial_value=initial_frame,
+        )
+        to_dropdown = server.gui.add_dropdown(
+            "To",
+            options=frame_options,
+            initial_value=initial_to_frame,
+        )
+        translation_text = server.gui.add_text("Translation (x,y,z)", "")
+        rotation_text = server.gui.add_text("Rotation (w,x,y,z)", "")
+
+        state.transform_from_dropdown = from_dropdown
+        state.transform_to_dropdown = to_dropdown
+        state.transform_translation_text = translation_text
+        state.transform_rotation_text = rotation_text
+
+        @from_dropdown.on_update
+        def _on_transform_frame_change(_event: object) -> None:
+            _update_transform_display(state)
+
+        @to_dropdown.on_update
+        def _on_transform_target_change(_event: object) -> None:
+            _update_transform_display(state)
+
+        @translation_text.on_update
+        def _on_translation_text_edit(_event: object) -> None:
+            if state.suppress_transform_text_callbacks:
+                return
+            _update_transform_display(state)
+
+        @rotation_text.on_update
+        def _on_rotation_text_edit(_event: object) -> None:
+            if state.suppress_transform_text_callbacks:
+                return
+            _update_transform_display(state)
+
+    _update_transform_display(state)
+
+    _set_ground_plane_visible(server, state, state.show_ground_plane)
 
 
 def _remove_link_frame_visuals(state: ViewerState) -> None:
@@ -467,8 +722,13 @@ def setup_viewer_actions(
 
 def setup_file_actions(
     server: viser.ViserServer,
-) -> tuple[Any, GuiUploadButtonHandle]:
-    with server.gui.add_folder("File"):
+) -> tuple[
+    Any,
+    GuiUploadButtonHandle,
+    GuiDropdownHandle[str] | None,
+    GuiButtonHandle | None,
+]:
+    with server.gui.add_folder("Files"):
         file_text = server.gui.add_text("Filename", "No file loaded.")
 
         upload_button = server.gui.add_upload_button(
@@ -477,7 +737,24 @@ def setup_file_actions(
             hint="Select a URDF file (.urdf, .xml).",
         )
 
-    return file_text, upload_button
+        available_descriptions = _get_robot_description_candidates()
+        description_dropdown: GuiDropdownHandle[str] | None = None
+        load_description_button: GuiButtonHandle | None = None
+        if available_descriptions:
+            description_dropdown = server.gui.add_dropdown(
+                "robot_descriptions",
+                options=available_descriptions,
+                initial_value=available_descriptions[0],
+            )
+            load_description_button = server.gui.add_button(
+                "Load robot_descriptions entry"
+            )
+        else:
+            server.gui.add_markdown(
+                "Install `robot_descriptions` to browse robots from that catalog."
+            )
+
+    return file_text, upload_button, description_dropdown, load_description_button
 
 
 def load_urdf_file(
@@ -487,11 +764,6 @@ def load_urdf_file(
     status_text: Any,
     load_meshes: bool,
 ) -> None:
-    clear_previous_robot(server, state)
-
-    root_node_name = f"/robot_{int(time.time() * 1000)}"
-    state.current_root_name = root_node_name
-
     urdf = yourdfpy.URDF.load(
         path,
         load_meshes=load_meshes,
@@ -499,182 +771,42 @@ def load_urdf_file(
         mesh_dir=os.path.dirname(path),
     )
 
-    viser_urdf = ViserUrdf(
+    _load_robot_into_viewer(
         server,
+        state,
         urdf,
-        root_node_name=root_node_name,
-        load_meshes=load_meshes,
-        load_collision_meshes=False,
+        path,
+        status_text,
+        load_meshes,
     )
-    state.current_urdf = viser_urdf
-    state.show_visual_meshes = state.show_visual_meshes and load_meshes
-    if load_meshes:
-        viser_urdf.show_visual = state.show_visual_meshes
 
-    # Creating one frame + one label per link can be expensive on large robots.
-    # Defer this until the user enables frame overlays.
-    if state.show_link_frames or state.show_frame_names:
-        _create_link_frame_visuals(server, state)
 
-    state.visibility_folder_handle = server.gui.add_folder("Visibility")
-    with state.visibility_folder_handle:
-        show_meshes_cb = server.gui.add_checkbox(
-            "Meshes",
-            initial_value=state.show_visual_meshes,
+def load_robot_description(
+    server: viser.ViserServer,
+    state: ViewerState,
+    description_name: str,
+    status_text: Any,
+    load_meshes: bool,
+) -> str:
+    try:
+        from robot_descriptions.loaders.yourdfpy import (
+            load_robot_description as load_rd,
         )
-        show_frames_cb = server.gui.add_checkbox(
-            "Frames",
-            initial_value=state.show_link_frames,
-        )
-        show_frame_names_cb = server.gui.add_checkbox(
-            "Frame names",
-            initial_value=state.show_frame_names,
-        )
-        show_ground_cb = server.gui.add_checkbox(
-            "Ground plane",
-            initial_value=state.show_ground_plane,
-        )
+    except Exception as exc:
+        raise RuntimeError(
+            "robot_descriptions is not available; install the package to use this feature"
+        ) from exc
 
-    state.visibility_visual_checkbox = show_meshes_cb
-    state.visibility_frames_checkbox = show_frames_cb
-    state.visibility_frame_names_checkbox = show_frame_names_cb
-    state.visibility_ground_checkbox = show_ground_cb
+    resolved_name, urdf_path = _resolve_robot_description_urdf_path(description_name)
+    urdf = load_rd(resolved_name)
 
-    @show_meshes_cb.on_update
-    def _show_meshes(_: object) -> None:
-        state.show_visual_meshes = show_meshes_cb.value
-        if load_meshes:
-            viser_urdf.show_visual = state.show_visual_meshes
+    _load_robot_into_viewer(
+        server,
+        state,
+        urdf,
+        urdf_path,
+        status_text,
+        load_meshes,
+    )
 
-    @show_frames_cb.on_update
-    def _show_frames(_: object) -> None:
-        state.show_link_frames = show_frames_cb.value
-        if state.show_link_frames:
-            _ensure_link_frame_visuals(server, state)
-        update_link_frame_visuals(state)
-
-    @show_frame_names_cb.on_update
-    def _show_frame_names(_: object) -> None:
-        state.show_frame_names = show_frame_names_cb.value
-        if state.show_frame_names:
-            _ensure_link_frame_visuals(server, state)
-        update_link_frame_visuals(state)
-
-    @show_ground_cb.on_update
-    def _show_ground(_: object) -> None:
-        state.show_ground_plane = show_ground_cb.value
-        _set_ground_plane_visible(server, state, state.show_ground_plane)
-
-    show_meshes_cb.visible = load_meshes
-
-    state.control_folder_handle = server.gui.add_folder("Joint Control")
-    with state.control_folder_handle:
-        slider_handles, joint_names, initial_config, joint_limits = (
-            create_robot_control_sliders(server, viser_urdf, state)
-        )
-        state.slider_handles = slider_handles
-        state.joint_names = joint_names
-        state.initial_config = initial_config
-        state.joint_limits = joint_limits
-
-        if slider_handles:
-            viser_urdf.update_cfg(np.zeros(len(slider_handles)))
-
-        randomize_button = server.gui.add_button("Randomize")
-        state.randomize_button = randomize_button
-
-        def _on_randomize(_: object) -> None:
-            if state.slider_handles is None or state.joint_limits is None:
-                return
-
-            randomized = np.array(
-                [
-                    np.random.uniform(lower, upper)
-                    for lower, upper in state.joint_limits
-                ],
-                dtype=float,
-            )
-            _apply_joint_configuration(
-                state,
-                randomized,
-                update_sliders=True,
-            )
-
-        randomize_button.on_click(_on_randomize)
-
-        reset_button = server.gui.add_button("Reset")
-        state.reset_button = reset_button
-
-        def _on_reset(_: object) -> None:
-            if state.slider_handles is None or state.initial_config is None:
-                return
-
-            reset_cfg = np.array(state.initial_config, dtype=float)
-            _apply_joint_configuration(
-                state,
-                reset_cfg,
-                update_sliders=True,
-            )
-
-        reset_button.on_click(_on_reset)
-
-    state.cartesian_folder_handle = server.gui.add_folder("Cartesian Control")
-    with state.cartesian_folder_handle:
-        cartesian_mode_checkbox = server.gui.add_checkbox("Enable", initial_value=False)
-        state.cartesian_mode_checkbox = cartesian_mode_checkbox
-
-        setup_cartesian_controls(
-            server, state, path, status_text, cartesian_mode_checkbox
-        )
-
-    state.transform_folder_handle = server.gui.add_folder("Get Transform")
-    with state.transform_folder_handle:
-        frame_options = list(urdf.link_map.keys())
-        initial_frame = frame_options[0]
-        initial_to_frame = initial_frame
-        if state.cartesian_frame_dropdown is not None:
-            cartesian_target_frame = state.cartesian_frame_dropdown.value
-            if cartesian_target_frame in frame_options:
-                initial_to_frame = cartesian_target_frame
-
-        from_dropdown = server.gui.add_dropdown(
-            "From",
-            options=frame_options,
-            initial_value=initial_frame,
-        )
-        to_dropdown = server.gui.add_dropdown(
-            "To",
-            options=frame_options,
-            initial_value=initial_to_frame,
-        )
-        translation_text = server.gui.add_text("Translation (x,y,z)", "")
-        rotation_text = server.gui.add_text("Rotation (w,x,y,z)", "")
-
-        state.transform_from_dropdown = from_dropdown
-        state.transform_to_dropdown = to_dropdown
-        state.transform_translation_text = translation_text
-        state.transform_rotation_text = rotation_text
-
-        @from_dropdown.on_update
-        def _on_transform_frame_change(_event: object) -> None:
-            _update_transform_display(state)
-
-        @to_dropdown.on_update
-        def _on_transform_target_change(_event: object) -> None:
-            _update_transform_display(state)
-
-        @translation_text.on_update
-        def _on_translation_text_edit(_event: object) -> None:
-            if state.suppress_transform_text_callbacks:
-                return
-            _update_transform_display(state)
-
-        @rotation_text.on_update
-        def _on_rotation_text_edit(_event: object) -> None:
-            if state.suppress_transform_text_callbacks:
-                return
-            _update_transform_display(state)
-
-    _update_transform_display(state)
-
-    _set_ground_plane_visible(server, state, state.show_ground_plane)
+    return resolved_name

@@ -8,11 +8,21 @@ from typing import Annotated, Optional
 
 import tyro
 import viser
-from viser._gui_handles import GuiEvent, GuiUploadButtonHandle, UploadedFile
+from viser._gui_handles import (
+    GuiButtonHandle,
+    GuiEvent,
+    GuiUploadButtonHandle,
+    UploadedFile,
+)
 
 from .ik import ik_worker_loop
 from .state import ViewerState
-from .ui import load_urdf_file, setup_file_actions, setup_viewer_actions
+from .ui import (
+    load_robot_description,
+    load_urdf_file,
+    setup_file_actions,
+    setup_viewer_actions,
+)
 from .utils import safe_write_file
 
 
@@ -58,7 +68,9 @@ def main(
         ).start()
 
     status_text = setup_viewer_actions(server)
-    file_text, upload_button = setup_file_actions(server)
+    file_text, upload_button, description_dropdown, load_description_button = (
+        setup_file_actions(server)
+    )
 
     if path is not None:
         resolved_path = os.path.abspath(path)
@@ -105,6 +117,29 @@ def main(
         except Exception as exc:
             file_text.value = "No file loaded."
             status_text.value = f"Failed to load {uploaded.name}: {exc!r}"
+
+    if description_dropdown is not None and load_description_button is not None:
+
+        @load_description_button.on_click
+        def _on_load_robot_description(_event: GuiEvent[GuiButtonHandle]) -> None:
+            selected_name = description_dropdown.value
+            status_text.value = f"Loading {selected_name}..."
+
+            try:
+                resolved_name = load_robot_description(
+                    server,
+                    state,
+                    selected_name,
+                    status_text,
+                    load_meshes=load_meshes,
+                )
+                file_text.value = f"{resolved_name} (robot_descriptions)"
+                status_text.value = f"Loaded {resolved_name}."
+            except Exception as exc:
+                file_text.value = "No file loaded."
+                status_text.value = (
+                    f"Failed to load robot_descriptions entry {selected_name}: {exc!r}"
+                )
 
     ik_thread = threading.Thread(
         target=ik_worker_loop, args=(state, status_text), daemon=True
