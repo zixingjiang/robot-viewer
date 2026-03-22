@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import math
+import os
 import time
 from typing import Any, Callable
 
@@ -9,18 +10,25 @@ import imageio.v3 as iio
 import numpy as np
 import viser
 import yourdfpy  # type: ignore[import]
+from viser import _messages
 from viser._gui_handles import (
     GuiButtonHandle,
     GuiDropdownHandle,
     GuiEvent,
     GuiUploadButtonHandle,
+    UploadedFile,
 )
 from viser.extras import ViserUrdf
 
 from .ik import setup_cartesian_controls
-from .loader import get_robot_description_candidates, prepare_scene_for_reload
+from .loader import (
+    get_robot_description_candidates,
+    load_robot_description_urdf,
+    load_urdf,
+    prepare_scene_for_reload,
+)
 from .state import ViewerState
-from .utils import rotation_matrix_to_wxyz
+from .utils import rotation_matrix_to_wxyz, safe_write_file
 
 
 _MAX_GROUND_PLANE_SAMPLE_LINKS = 128
@@ -574,3 +582,145 @@ def setup_file_actions(
             )
 
     return file_text, upload_button, description_dropdown, load_description_button
+
+
+def _reload_connected_pages(server: viser.ViserServer) -> None:
+    for client in server.get_clients().values():
+        try:
+            client._websock_connection.queue_message(
+                _messages.RunJavascriptMessage(source="window.location.reload();")
+            )
+            client.flush()
+        except Exception:
+            pass
+
+
+def _maybe_reload_connected_pages(
+    server: viser.ViserServer, had_previous_robot: bool
+) -> None:
+    if not had_previous_robot:
+        return
+    _reload_connected_pages(server)
+
+
+def load_startup_target(
+    server: viser.ViserServer,
+    state: ViewerState,
+    path: str,
+    rd: bool,
+    status_text: Any,
+    file_text: Any,
+    load_meshes: bool,
+) -> None:
+    if rd:
+        status_text.value = f"Loading {path}..."
+        with state.load_lock:
+            try:
+                had_previous_robot = state.current_urdf is not None
+                resolved_name, urdf, urdf_path = load_robot_description_urdf(path)
+                load_robot_into_viewer(
+                    server, state, urdf, urdf_path, status_text, load_meshes
+                )
+                file_text.value = f"{resolved_name} (robot_descriptions)"
+                status_text.value = f"Loaded {resolved_name}."
+                _maybe_reload_connected_pages(server, had_previous_robot)
+            except Exception as exc:
+                file_text.value = "No file loaded."
+                status_text.value = (
+                    f"Failed to load robot_descriptions entry {path}: {exc!r}"
+                )
+        return
+
+    resolved_path = os.path.abspath(path)
+    file_name = os.path.basename(resolved_path)
+
+    if not os.path.isfile(resolved_path):
+        file_text.value = "No file loaded."
+        status_text.value = f"Startup file not found: {resolved_path}"
+        return
+
+    with state.load_lock:
+        try:
+            had_previous_robot = state.current_urdf is not None
+            status_text.value = f"Loading {file_name}..."
+            urdf = load_urdf(resolved_path, load_meshes)
+            load_robot_into_viewer(
+                server,
+                state,
+                urdf,
+                resolved_path,
+                status_text,
+                load_meshes,
+            )
+            file_text.value = file_name
+            status_text.value = f"Loaded {file_name}."
+            _maybe_reload_connected_pages(server, had_previous_robot)
+        except Exception as exc:
+            file_text.value = "No file loaded."
+            status_text.value = f"Failed to load {file_name}: {exc!r}"
+
+
+def register_file_event_handlers(
+    server: viser.ViserServer,
+    state: ViewerState,
+    status_text: Any,
+    file_text: Any,
+    upload_button: GuiUploadButtonHandle,
+    description_dropdown: GuiDropdownHandle[str] | None,
+    load_description_button: GuiButtonHandle | None,
+    load_meshes: bool,
+) -> None:
+    @upload_button.on_upload
+    def _on_upload(event: GuiEvent[GuiUploadButtonHandle]) -> None:
+        uploaded: UploadedFile = event.target.value
+        if uploaded is None:
+            return
+
+        status_text.value = f"Loading {uploaded.name}..."
+
+        with state.load_lock:
+            try:
+                had_previous_robot = state.current_urdf is not None
+                path = safe_write_file(uploaded, state.tmp_dir)
+                file_text.value = uploaded.name
+                urdf = load_urdf(path, load_meshes)
+                load_robot_into_viewer(
+                    server,
+                    state,
+                    urdf,
+                    path,
+                    status_text,
+                    load_meshes,
+                )
+                status_text.value = f"Loaded {uploaded.name}."
+                _maybe_reload_connected_pages(server, had_previous_robot)
+            except Exception as exc:
+                file_text.value = "No file loaded."
+                status_text.value = f"Failed to load {uploaded.name}: {exc!r}"
+
+    if description_dropdown is None or load_description_button is None:
+        return
+
+    @load_description_button.on_click
+    def _on_load_robot_description(_event: GuiEvent[GuiButtonHandle]) -> None:
+        selected_name = description_dropdown.value
+        status_text.value = f"Loading {selected_name}..."
+
+        with state.load_lock:
+            try:
+                had_previous_robot = state.current_urdf is not None
+                resolved_name, urdf, urdf_path = load_robot_description_urdf(
+                    selected_name
+                )
+                load_robot_into_viewer(
+                    server, state, urdf, urdf_path, status_text, load_meshes
+                )
+                file_text.value = f"{resolved_name} (robot_descriptions)"
+                status_text.value = f"Loaded {resolved_name}."
+                _maybe_reload_connected_pages(server, had_previous_robot)
+            except Exception as exc:
+                file_text.value = "No file loaded."
+                status_text.value = (
+                    "Failed to load robot_descriptions entry "
+                    f"{selected_name}: {exc!r}"
+                )
