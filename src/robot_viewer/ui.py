@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import time
 from typing import Any
@@ -145,22 +146,67 @@ def _create_link_frame_visuals(server: viser.ViserServer, state: ViewerState) ->
     update_link_frame_visuals(state)
 
 
-def _set_ground_plane_visible(server: viser.ViserServer, visible: bool) -> None:
+def _compute_ground_plane_size(state: ViewerState) -> tuple[int, int]:
+    if state.current_urdf is None:
+        return (2, 2)
+
+    xs: list[float] = []
+    ys: list[float] = []
+    urdf = state.current_urdf._urdf
+    for link_name in urdf.link_map.keys():
+        try:
+            transform = urdf.get_transform(link_name)
+        except Exception:
+            continue
+        xs.append(float(transform[0, 3]))
+        ys.append(float(transform[1, 3]))
+
+    if not xs or not ys:
+        return (2, 2)
+
+    span_x = max(xs) - min(xs)
+    span_y = max(ys) - min(ys)
+
+    # Add a border around the robot and quantize so tiny motions do not cause
+    # repeated grid re-creation.
+    margin = 1.0
+    width = max(2, int(math.ceil(span_x + margin)))
+    height = max(2, int(math.ceil(span_y + margin)))
+
+    return (width, height)
+
+
+def _set_ground_plane_visible(
+    server: viser.ViserServer,
+    state: ViewerState,
+    visible: bool,
+) -> None:
+    if not visible:
+        try:
+            server.scene.remove_by_name("/grid")
+        except Exception:
+            pass
+        state.ground_plane_size = (0, 0)
+        return
+
+    width, height = _compute_ground_plane_size(state)
+
+    if state.ground_plane_size == (width, height):
+        return
+
     try:
         server.scene.remove_by_name("/grid")
     except Exception:
         pass
 
-    if not visible:
-        return
-
     server.scene.add_grid(
         "/grid",
-        width=2,
-        height=2,
+        width=width,
+        height=height,
         position=(0.0, 0.0, 0.0),
-        infinite_grid=True,
+        infinite_grid=False,
     )
+    state.ground_plane_size = (width, height)
 
 
 def _apply_joint_configuration(
@@ -309,6 +355,7 @@ def clear_previous_robot(server: viser.ViserServer, state: ViewerState) -> None:
     state.ik_damping_task = None
     state.ik_joint_name_to_q_index = {}
     state.ik_solver = None
+    state.ground_plane_size = (0, 0)
 
 
 def load_urdf_file(
@@ -387,7 +434,7 @@ def load_urdf_file(
     @show_ground_cb.on_update
     def _show_ground(_: object) -> None:
         state.show_ground_plane = show_ground_cb.value
-        _set_ground_plane_visible(server, state.show_ground_plane)
+        _set_ground_plane_visible(server, state, state.show_ground_plane)
 
     show_meshes_cb.visible = load_meshes
 
@@ -418,7 +465,11 @@ def load_urdf_file(
                 ],
                 dtype=float,
             )
-            _apply_joint_configuration(state, randomized, update_sliders=True)
+            _apply_joint_configuration(
+                state,
+                randomized,
+                update_sliders=True,
+            )
 
         randomize_button.on_click(_on_randomize)
 
@@ -430,7 +481,11 @@ def load_urdf_file(
                 return
 
             reset_cfg = np.array(state.initial_config, dtype=float)
-            _apply_joint_configuration(state, reset_cfg, update_sliders=True)
+            _apply_joint_configuration(
+                state,
+                reset_cfg,
+                update_sliders=True,
+            )
 
         reset_button.on_click(_on_reset)
 
@@ -493,4 +548,4 @@ def load_urdf_file(
 
     _update_transform_display(state)
 
-    _set_ground_plane_visible(server, state.show_ground_plane)
+    _set_ground_plane_visible(server, state, state.show_ground_plane)

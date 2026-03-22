@@ -43,6 +43,7 @@ class ViewerState:
     show_link_frames: bool = False
     show_frame_names: bool = False
     show_ground_plane: bool = True
+    ground_plane_size: tuple[int, int] = (0, 0)
     link_frame_handles: dict[str, FrameHandle] = field(default_factory=dict)
     frame_name_handles: dict[str, Gui3dContainerHandle] = field(default_factory=dict)
     cartesian_frame_dropdown: Optional[GuiDropdownHandle[str]] = None
