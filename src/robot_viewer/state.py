@@ -64,7 +64,7 @@ class ViewerState:
     ik_damping_cost: float = 1e-3
     ik_enabled: bool = False
     ik_running: bool = True
-    ik_dt: float = 1.0 / 120.0
+    ik_dt: float = 1.0 / 30.0
     suppress_slider_callbacks: bool = False
     suppress_transform_text_callbacks: bool = False
     ik_lock: threading.Lock = field(default_factory=threading.Lock)
