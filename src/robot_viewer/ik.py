@@ -11,7 +11,6 @@ import viser
 from pink import solve_ik
 from pink.tasks import DampingTask, FrameTask, PostureTask
 
-from .scene_sync import update_link_frame_visuals
 from .state import ViewerState
 from .utils import (
     rotation_matrix_to_wxyz,
@@ -294,6 +293,8 @@ def setup_cartesian_controls(
 
 
 def ik_worker_loop(state: ViewerState, status_text: Any) -> None:
+    from .viewer import update_link_frame_visuals
+
     limit_tol = 1e-9
 
     while state.ik_running:

@@ -17,11 +17,14 @@ from viser._gui_handles import (
 )
 
 from .ik import ik_worker_loop
-from .state import ViewerState
-from .ui import (
-    load_robot_description,
-    load_urdf_file,
+from .loader import (
+    load_robot_description_urdf,
+    load_urdf,
     prune_stale_robot_roots,
+)
+from .state import ViewerState
+from .viewer import (
+    load_robot_into_viewer,
     setup_file_actions,
     setup_viewer_actions,
 )
@@ -107,12 +110,9 @@ def main(
             status_text.value = f"Loading {path}..."
             with state.load_lock:
                 try:
-                    resolved_name = load_robot_description(
-                        server,
-                        state,
-                        path,
-                        status_text,
-                        load_meshes=load_meshes,
+                    resolved_name, urdf, urdf_path = load_robot_description_urdf(path)
+                    load_robot_into_viewer(
+                        server, state, urdf, urdf_path, status_text, load_meshes
                     )
                     file_text.value = f"{resolved_name} (robot_descriptions)"
                     status_text.value = f"Loaded {resolved_name}."
@@ -133,12 +133,14 @@ def main(
                 with state.load_lock:
                     try:
                         status_text.value = f"Loading {file_name}..."
-                        load_urdf_file(
+                        urdf = load_urdf(resolved_path, load_meshes)
+                        load_robot_into_viewer(
                             server,
                             state,
+                            urdf,
                             resolved_path,
                             status_text,
-                            load_meshes=load_meshes,
+                            load_meshes,
                         )
                         file_text.value = file_name
                         status_text.value = f"Loaded {file_name}."
@@ -159,12 +161,14 @@ def main(
             try:
                 path = safe_write_file(uploaded, state.tmp_dir)
                 file_text.value = uploaded.name
-                load_urdf_file(
+                urdf = load_urdf(path, load_meshes)
+                load_robot_into_viewer(
                     server,
                     state,
+                    urdf,
                     path,
                     status_text,
-                    load_meshes=load_meshes,
+                    load_meshes,
                 )
                 status_text.value = f"Loaded {uploaded.name}."
                 _reload_connected_pages()
@@ -181,12 +185,11 @@ def main(
 
             with state.load_lock:
                 try:
-                    resolved_name = load_robot_description(
-                        server,
-                        state,
-                        selected_name,
-                        status_text,
-                        load_meshes=load_meshes,
+                    resolved_name, urdf, urdf_path = load_robot_description_urdf(
+                        selected_name
+                    )
+                    load_robot_into_viewer(
+                        server, state, urdf, urdf_path, status_text, load_meshes
                     )
                     file_text.value = f"{resolved_name} (robot_descriptions)"
                     status_text.value = f"Loaded {resolved_name}."
