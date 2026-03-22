@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import threading
 import webbrowser
-from typing import Optional
+from typing import Annotated, Optional
 
 import tyro
 import viser
@@ -16,20 +17,27 @@ from .utils import safe_write_file
 
 
 def main(
-    host: str = "0.0.0.0",
-    port: int = 8080,
-    label: Optional[str] = "Robot Viewer",
-    load_meshes: bool = True,
-    show_grid: bool = True,
-    open_browser: bool = True,
+    path: Annotated[
+        tyro.conf.Positional[Optional[str]],
+        tyro.conf.arg(help="Optional URDF file to open at startup."),
+    ] = None,
+    host: Annotated[
+        str,
+        tyro.conf.arg(help="Host interface to bind the viewer server to."),
+    ] = "0.0.0.0",
+    port: Annotated[
+        int,
+        tyro.conf.arg(help="Port to serve the viewer web app on."),
+    ] = 8080,
+    open_browser: Annotated[
+        bool,
+        tyro.conf.arg(help="Automatically open the viewer in a browser tab."),
+    ] = True,
 ) -> None:
-    """Start a robot viewer server.
-
-    The viewer will be served at http://{host}:{port}. Use the "Upload URDF" button
-    in the GUI to select a local URDF file, and it will be visualized in the 3D view.
-
-    The visualization is powered by the `viser` library.
-    """
+    """Start a web-based robot viewer at http://{host}:{port}."""
+    label = "Robot Viewer"
+    load_meshes = True
+    show_grid = True
 
     state = ViewerState(tmp_dir=tempfile.mkdtemp(prefix="robot_viewer_"))
     state.show_ground_plane = show_grid
@@ -51,6 +59,29 @@ def main(
 
     status_text = setup_viewer_actions(server)
     file_text, upload_button = setup_file_actions(server)
+
+    if path is not None:
+        resolved_path = os.path.abspath(path)
+        file_name = os.path.basename(resolved_path)
+
+        if not os.path.isfile(resolved_path):
+            file_text.value = "No file loaded."
+            status_text.value = f"Startup file not found: {resolved_path}"
+        else:
+            try:
+                status_text.value = f"Loading {file_name}..."
+                load_urdf_file(
+                    server,
+                    state,
+                    resolved_path,
+                    status_text,
+                    load_meshes=load_meshes,
+                )
+                file_text.value = file_name
+                status_text.value = f"Loaded {file_name}."
+            except Exception as exc:
+                file_text.value = "No file loaded."
+                status_text.value = f"Failed to load {file_name}: {exc!r}"
 
     @upload_button.on_upload
     def _on_upload(event: GuiEvent[GuiUploadButtonHandle]) -> None:
@@ -90,5 +121,9 @@ def main(
         server.stop()
 
 
-if __name__ == "__main__":
+def run() -> None:
     tyro.cli(main)
+
+
+if __name__ == "__main__":
+    run()

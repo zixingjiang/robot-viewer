@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-robot-viewer = "robot_viewer:main"
+rv = "robot_viewer.cli:run"
 
 [build-system]
 requires = ["uv_build>=0.10.10,<0.11.0"]
