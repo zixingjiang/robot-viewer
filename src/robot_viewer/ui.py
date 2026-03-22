@@ -5,6 +5,7 @@ from importlib import import_module
 import math
 import os
 import time
+import uuid
 from typing import Any, Callable
 
 import imageio.v3 as iio
@@ -92,7 +93,9 @@ def _load_robot_into_viewer(
 ) -> None:
     clear_previous_robot(server, state)
 
-    root_node_name = f"/robot_{int(time.time() * 1000)}"
+    # Use a UUID suffix so repeated loads in the same millisecond never reuse
+    # the same scene root path.
+    root_node_name = f"/robot_{uuid.uuid4().hex}"
     state.current_root_name = root_node_name
 
     viser_urdf = ViserUrdf(
@@ -565,6 +568,8 @@ def create_robot_control_sliders(
 def clear_previous_robot(server: viser.ViserServer, state: ViewerState) -> None:
     state.ik_enabled = False
 
+    previous_urdf = state.current_urdf
+
     if state.ground_plane_handle is not None:
         try:
             state.ground_plane_handle.remove()
@@ -589,7 +594,11 @@ def clear_previous_robot(server: viser.ViserServer, state: ViewerState) -> None:
             # child removals that trigger viser warnings.
             server.scene.remove_by_name(state.current_root_name)
         except Exception:
-            pass
+            if previous_urdf is not None:
+                try:
+                    previous_urdf.remove()
+                except Exception:
+                    pass
 
     state.current_urdf = None
     state.current_root_name = None
