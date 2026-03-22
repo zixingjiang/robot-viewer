@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import io
-from importlib import import_module
 import math
-import os
 import time
 import uuid
 from typing import Any, Callable
@@ -21,66 +19,16 @@ from viser._gui_handles import (
 from viser.extras import ViserUrdf
 
 from .ik import setup_cartesian_controls
+from .robot_data import (
+    get_robot_description_candidates,
+    load_robot_description_urdf,
+    load_urdf,
+)
+from .scene_sync import update_link_frame_visuals, update_transform_display
 from .state import ViewerState
-from .utils import rotation_matrix_to_wxyz
 
 
 _MAX_GROUND_PLANE_SAMPLE_LINKS = 128
-
-
-def _get_robot_description_candidates() -> list[str]:
-    try:
-        from robot_descriptions import DESCRIPTIONS
-    except Exception:
-        return []
-
-    urdf_names: list[str] = []
-    for name, description in DESCRIPTIONS.items():
-        if getattr(description, "has_urdf", False):
-            urdf_names.append(name)
-
-    return sorted(urdf_names)
-
-
-def _resolve_robot_description_urdf_path(description_name: str) -> tuple[str, str]:
-    candidates = [description_name]
-    if not description_name.endswith("_description"):
-        candidates.append(f"{description_name}_description")
-
-    module = None
-    resolved_name = ""
-    for candidate in candidates:
-        module_name = f"robot_descriptions.{candidate}"
-        try:
-            module = import_module(module_name)
-            resolved_name = candidate
-            break
-        except ModuleNotFoundError as exc:
-            # Only continue when the description module itself does not exist.
-            # If a nested dependency import fails, surface the original error.
-            if exc.name != module_name:
-                raise
-            continue
-
-    if module is None:
-        raise ModuleNotFoundError(
-            "Could not import robot description "
-            f"'{description_name}' as a robot_descriptions submodule"
-        )
-
-    if hasattr(module, "URDF_PATH"):
-        urdf_path = str(module.URDF_PATH)
-    elif hasattr(module, "XACRO_PATH"):
-        # robot_descriptions resolves Xacro files to a cached URDF.
-        from robot_descriptions._xacro import get_urdf_path
-
-        urdf_path = str(get_urdf_path(module))
-    else:
-        raise RuntimeError(
-            "Selected robot description does not provide URDF or Xacro data"
-        )
-
-    return resolved_name, urdf_path
 
 
 def _load_robot_into_viewer(
@@ -256,25 +204,25 @@ def _load_robot_into_viewer(
 
         @from_dropdown.on_update
         def _on_transform_frame_change(_event: object) -> None:
-            _update_transform_display(state)
+            update_transform_display(state)
 
         @to_dropdown.on_update
         def _on_transform_target_change(_event: object) -> None:
-            _update_transform_display(state)
+            update_transform_display(state)
 
         @translation_text.on_update
         def _on_translation_text_edit(_event: object) -> None:
             if state.suppress_transform_text_callbacks:
                 return
-            _update_transform_display(state)
+            update_transform_display(state)
 
         @rotation_text.on_update
         def _on_rotation_text_edit(_event: object) -> None:
             if state.suppress_transform_text_callbacks:
                 return
-            _update_transform_display(state)
+            update_transform_display(state)
 
-    _update_transform_display(state)
+    update_transform_display(state)
 
     _set_ground_plane_visible(server, state, state.show_ground_plane)
 
@@ -293,79 +241,6 @@ def _remove_link_frame_visuals(state: ViewerState) -> None:
         except Exception:
             pass
     state.frame_name_handles.clear()
-
-
-def update_link_frame_visuals(state: ViewerState) -> None:
-    if state.current_urdf is None:
-        return
-
-    urdf = state.current_urdf._urdf
-    for link_name, frame_handle in state.link_frame_handles.items():
-        try:
-            transform = urdf.get_transform(link_name)
-        except Exception:
-            continue
-
-        frame_handle.wxyz = rotation_matrix_to_wxyz(transform[:3, :3])
-        frame_handle.position = (
-            float(transform[0, 3]),
-            float(transform[1, 3]),
-            float(transform[2, 3]),
-        )
-        frame_handle.visible = state.show_link_frames
-
-        name_handle = state.frame_name_handles.get(link_name)
-        if name_handle is not None:
-            name_handle.position = (
-                float(transform[0, 3]),
-                float(transform[1, 3]),
-                float(transform[2, 3]),
-            )
-            name_handle.visible = state.show_frame_names
-
-    _update_transform_display(state)
-
-
-def _update_transform_display(state: ViewerState) -> None:
-    if (
-        state.current_urdf is None
-        or state.transform_from_dropdown is None
-        or state.transform_to_dropdown is None
-        or state.transform_translation_text is None
-        or state.transform_rotation_text is None
-    ):
-        return
-
-    from_frame = state.transform_from_dropdown.value
-    to_frame = state.transform_to_dropdown.value
-
-    try:
-        urdf = state.current_urdf._urdf
-        world_from = urdf.get_transform(from_frame)
-        world_to = urdf.get_transform(to_frame)
-        from_to = np.linalg.inv(world_from) @ world_to
-
-        translation = from_to[:3, 3]
-        rotation_wxyz = rotation_matrix_to_wxyz(from_to[:3, :3])
-
-        state.suppress_transform_text_callbacks = True
-        try:
-            state.transform_translation_text.value = (
-                f"{translation[0]:.4f}, {translation[1]:.4f}, {translation[2]:.4f}"
-            )
-            state.transform_rotation_text.value = (
-                f"{rotation_wxyz[0]:.4f}, {rotation_wxyz[1]:.4f}, "
-                f"{rotation_wxyz[2]:.4f}, {rotation_wxyz[3]:.4f}"
-            )
-        finally:
-            state.suppress_transform_text_callbacks = False
-    except Exception:
-        state.suppress_transform_text_callbacks = True
-        try:
-            state.transform_translation_text.value = "N/A"
-            state.transform_rotation_text.value = "N/A"
-        finally:
-            state.suppress_transform_text_callbacks = False
 
 
 def _create_link_frame_visuals(server: viser.ViserServer, state: ViewerState) -> None:
@@ -746,7 +621,7 @@ def setup_file_actions(
             hint="Select a URDF file (.urdf, .xml).",
         )
 
-        available_descriptions = _get_robot_description_candidates()
+        available_descriptions = get_robot_description_candidates()
         description_dropdown: GuiDropdownHandle[str] | None = None
         load_description_button: GuiButtonHandle | None = None
         if available_descriptions:
@@ -773,12 +648,7 @@ def load_urdf_file(
     status_text: Any,
     load_meshes: bool,
 ) -> None:
-    urdf = yourdfpy.URDF.load(
-        path,
-        load_meshes=load_meshes,
-        load_collision_meshes=False,
-        mesh_dir=os.path.dirname(path),
-    )
+    urdf = load_urdf(path, load_meshes)
 
     _load_robot_into_viewer(
         server,
@@ -797,17 +667,7 @@ def load_robot_description(
     status_text: Any,
     load_meshes: bool,
 ) -> str:
-    try:
-        from robot_descriptions.loaders.yourdfpy import (
-            load_robot_description as load_rd,
-        )
-    except Exception as exc:
-        raise RuntimeError(
-            "robot_descriptions is not available; install the package to use this feature"
-        ) from exc
-
-    resolved_name, urdf_path = _resolve_robot_description_urdf_path(description_name)
-    urdf = load_rd(resolved_name)
+    resolved_name, urdf, urdf_path = load_robot_description_urdf(description_name)
 
     _load_robot_into_viewer(
         server,
