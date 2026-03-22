@@ -167,11 +167,9 @@ def _compute_ground_plane_size(state: ViewerState) -> tuple[int, int]:
     span_x = max(xs) - min(xs)
     span_y = max(ys) - min(ys)
 
-    # Add a border around the robot and quantize so tiny motions do not cause
-    # repeated grid re-creation.
     margin = 1.0
-    width = max(2, int(math.ceil(span_x + margin)))
-    height = max(2, int(math.ceil(span_y + margin)))
+    width = max(2, int(math.ceil((span_x + margin) / 2.0)) * 2)
+    height = max(2, int(math.ceil((span_y + margin) / 2.0)) * 2)
 
     return (width, height)
 
