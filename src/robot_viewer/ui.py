@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import io
 import math
 import os
 import time
-from typing import Any
+from typing import Any, Callable
 
+import imageio.v3 as iio
 import numpy as np
 import viser
 import yourdfpy  # type: ignore[import]
+from viser._gui_handles import GuiButtonHandle, GuiEvent, GuiUploadButtonHandle
 from viser.extras import ViserUrdf
 
 from .ik import setup_cartesian_controls
@@ -372,6 +375,91 @@ def clear_previous_robot(server: viser.ViserServer, state: ViewerState) -> None:
     state.ik_joint_name_to_q_index = {}
     state.ik_solver = None
     state.ground_plane_size = (0, 0)
+
+
+def setup_viewer_actions(
+    server: viser.ViserServer,
+    status_text_getter: Callable[[], Any | None] | None = None,
+) -> Any:
+    with server.gui.add_folder("Viewer"):
+        status_text = server.gui.add_text("Status", "Open a URDF file to begin.")
+        reset_view_button = server.gui.add_button("Reset View")
+        save_canvas_button = server.gui.add_button("Save Canvas")
+
+    def _set_status(message: str) -> None:
+        status_handle = status_text
+        if status_text_getter is not None:
+            maybe_handle = status_text_getter()
+            if maybe_handle is not None:
+                status_handle = maybe_handle
+        if status_handle is not None:
+            status_handle.value = message
+
+    @reset_view_button.on_click
+    def _on_reset_view(event: GuiEvent[GuiButtonHandle]) -> None:
+        if event.client is None:
+            _set_status("No active client to reset view.")
+            return
+
+        initial_camera = server.initial_camera
+        client = event.client
+        client.camera.position = initial_camera.position
+        client.camera.look_at = initial_camera.look_at
+        if initial_camera.up is not None:
+            client.camera.up_direction = initial_camera.up
+        client.camera.fov = float(initial_camera.fov)
+        client.camera.near = float(initial_camera.near)
+        client.camera.far = float(initial_camera.far)
+
+        _set_status("View reset.")
+
+    @save_canvas_button.on_click
+    def _on_save_canvas(event: GuiEvent[GuiButtonHandle]) -> None:
+        client = event.client
+        if client is None:
+            _set_status("No active client to save canvas.")
+            return
+
+        width = int(client.camera.image_width)
+        height = int(client.camera.image_height)
+        if width <= 0 or height <= 0:
+            width = 1280
+            height = 720
+
+        try:
+            image = client.get_render(
+                height=height,
+                width=width,
+                transport_format="png",
+            )
+            buffer = io.BytesIO()
+            iio.imwrite(buffer, image, extension=".png")
+            filename = f"robot_viewer_canvas_{time.strftime('%Y%m%d_%H%M%S')}.png"
+            client.send_file_download(
+                filename=filename,
+                content=buffer.getvalue(),
+                save_immediately=True,
+            )
+            _set_status(f"Saved canvas as {filename}.")
+        except Exception as exc:
+            _set_status(f"Failed to save canvas: {exc!r}")
+
+    return status_text
+
+
+def setup_file_actions(
+    server: viser.ViserServer,
+) -> tuple[Any, GuiUploadButtonHandle]:
+    with server.gui.add_folder("File"):
+        file_text = server.gui.add_text("Filename", "No file loaded.")
+
+        upload_button = server.gui.add_upload_button(
+            "Open URDF",
+            mime_type="*/*",
+            hint="Select a URDF file (.urdf, .xml).",
+        )
+
+    return file_text, upload_button
 
 
 def load_urdf_file(

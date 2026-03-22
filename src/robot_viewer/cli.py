@@ -10,7 +10,7 @@ from viser._gui_handles import GuiEvent, GuiUploadButtonHandle, UploadedFile
 
 from .ik import ik_worker_loop
 from .state import ViewerState
-from .ui import load_urdf_file
+from .ui import load_urdf_file, setup_file_actions, setup_viewer_actions
 from .utils import safe_write_file
 
 
@@ -34,14 +34,8 @@ def main(
 
     server = viser.ViserServer(host=host, port=port, label=label)
 
-    with server.gui.add_folder("File"):
-        status_text = server.gui.add_text("Status", "Open a URDF file to begin.")
-
-        upload_button = server.gui.add_upload_button(
-            "Open URDF",
-            mime_type="*/*",
-            hint="Select a URDF file (.urdf, .xml).",
-        )
+    status_text = setup_viewer_actions(server)
+    file_text, upload_button = setup_file_actions(server)
 
     @upload_button.on_upload
     def _on_upload(event: GuiEvent[GuiUploadButtonHandle]) -> None:
@@ -53,6 +47,7 @@ def main(
 
         try:
             path = safe_write_file(uploaded, state.tmp_dir)
+            file_text.value = uploaded.name
             load_urdf_file(
                 server,
                 state,
@@ -62,6 +57,7 @@ def main(
             )
             status_text.value = f"Loaded {uploaded.name}."
         except Exception as exc:
+            file_text.value = "No file loaded."
             status_text.value = f"Failed to load {uploaded.name}: {exc!r}"
 
     ik_thread = threading.Thread(
