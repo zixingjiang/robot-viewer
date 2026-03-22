@@ -18,6 +18,9 @@ from .state import ViewerState
 from .utils import rotation_matrix_to_wxyz
 
 
+_MAX_GROUND_PLANE_SAMPLE_LINKS = 128
+
+
 def _remove_link_frame_visuals(state: ViewerState) -> None:
     for handle in state.link_frame_handles.values():
         try:
@@ -149,6 +152,15 @@ def _create_link_frame_visuals(server: viser.ViserServer, state: ViewerState) ->
     update_link_frame_visuals(state)
 
 
+def _ensure_link_frame_visuals(server: viser.ViserServer, state: ViewerState) -> None:
+    """Create frame visuals on demand when any frame overlay is enabled."""
+    if state.current_urdf is None or state.current_root_name is None:
+        return
+    if state.link_frame_handles and state.frame_name_handles:
+        return
+    _create_link_frame_visuals(server, state)
+
+
 def _compute_ground_plane_size(state: ViewerState) -> tuple[int, int]:
     if state.current_urdf is None:
         return (2, 2)
@@ -156,7 +168,13 @@ def _compute_ground_plane_size(state: ViewerState) -> tuple[int, int]:
     xs: list[float] = []
     ys: list[float] = []
     urdf = state.current_urdf._urdf
-    for link_name in urdf.link_map.keys():
+
+    link_names = list(urdf.link_map.keys())
+    if len(link_names) > _MAX_GROUND_PLANE_SAMPLE_LINKS:
+        step = max(1, len(link_names) // _MAX_GROUND_PLANE_SAMPLE_LINKS)
+        link_names = link_names[::step]
+
+    for link_name in link_names:
         try:
             transform = urdf.get_transform(link_name)
         except Exception:
@@ -493,7 +511,10 @@ def load_urdf_file(
     if load_meshes:
         viser_urdf.show_visual = state.show_visual_meshes
 
-    _create_link_frame_visuals(server, state)
+    # Creating one frame + one label per link can be expensive on large robots.
+    # Defer this until the user enables frame overlays.
+    if state.show_link_frames or state.show_frame_names:
+        _create_link_frame_visuals(server, state)
 
     state.visibility_folder_handle = server.gui.add_folder("Visibility")
     with state.visibility_folder_handle:
@@ -528,11 +549,15 @@ def load_urdf_file(
     @show_frames_cb.on_update
     def _show_frames(_: object) -> None:
         state.show_link_frames = show_frames_cb.value
+        if state.show_link_frames:
+            _ensure_link_frame_visuals(server, state)
         update_link_frame_visuals(state)
 
     @show_frame_names_cb.on_update
     def _show_frame_names(_: object) -> None:
         state.show_frame_names = show_frame_names_cb.value
+        if state.show_frame_names:
+            _ensure_link_frame_visuals(server, state)
         update_link_frame_visuals(state)
 
     @show_ground_cb.on_update
