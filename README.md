@@ -35,9 +35,13 @@ This allows you to run `rv` directly from anywhere in your terminal, without nee
 
 ## Usage
 ### View local URDF file
+Note: Your local file stays on your machine. It won't be uploaded to Internet.
+
 ![](./image/open_urdf.gif)
 
 ### View robot from robot_descriptions
+Note: Internet connection is required to fetch the robot models from thier respective repositories.
+
 ![](./image/open_rd.gif)
 
 ### Visibility control
@@ -47,4 +51,9 @@ This allows you to run `rv` directly from anywhere in your terminal, without nee
 ![](./image/joint_control.gif)
 
 ### Cartesian control
+Note: Turn on Cartesian control will disable joint control.
+
 ![](./image/cartesian_control.gif)
+
+## License
+This repository is publically available under the [MIT License](LICENSE). 
