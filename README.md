@@ -15,7 +15,7 @@ This repository contains `rv`, a simple web-based robot viewer powered by [Viser
 ```bash
 uv run rv
 ```
-The first run may take a while as it installs the required dependencies. After that, your browser will automatically launch and display the viewer interface
+The first run may take a while as it installs the required dependencies. After that, your browser will automatically launch and display the viewer interface.
 
 ### CLI
 
