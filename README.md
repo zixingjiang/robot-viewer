@@ -1,4 +1,4 @@
-![banner](./image/banner.png)
+![banner](./images/banner.png)
 
 # `rv` - A simple web-based robot viewer powered by Viser 
 
@@ -37,7 +37,7 @@ This allows you to run `rv` directly from anywhere in your terminal, without nee
 ### View local URDF file
 Note: Your local file stays on your machine. It won't be uploaded to Internet.
 
-![](./image/open_urdf.gif)
+![](./images/open_urdf.gif)
 
 ### View robot from robot_descriptions
 Note: Internet connection is required to fetch the robot models from thier respective repositories.
@@ -45,15 +45,15 @@ Note: Internet connection is required to fetch the robot models from thier respe
 ![](./image/open_rd.gif)
 
 ### Visibility control
-![](./image/visibility_control.gif)
+![](./images/visibility_control.gif)
 
 ### Joint control
-![](./image/joint_control.gif)
+![](./images/joint_control.gif)
 
 ### Cartesian control
 Note: Turn on Cartesian control will disable joint control.
 
-![](./image/cartesian_control.gif)
+![](./images/cartesian_control.gif)
 
 ## License
 This repository is publically available under the [MIT License](LICENSE). 
