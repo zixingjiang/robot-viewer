@@ -11,27 +11,43 @@ This repository contains `rv`, a simple web-based robot viewer powered by [Viser
 - Access 100+ robot models from [robot_descriptions.py](https://github.com/robot-descriptions/robot_descriptions.py).
 
 ## Getting Started
-`rv` uses [uv](https://docs.astral.sh/uv/) for project management. To run `rv` without installing it, simply clone the repository and run the following command in the project directory:
-```bash
+
+### Choose your package manager
+`rv` can be easily run using either [uv](https://docs.astral.sh/uv/getting-started/installation/) or [pixi](https://pixi.prefix.dev/latest/installation/). Choose the one you prefer. 
+
+>[!Note] 
+>For Windows users, please use pixi as pink cannot be installed on Windows via uv at the moment (Refs: [stephane-caron/pink#138](https://github.com/stephane-caron/pink/issues/138), [stack-of-tasks/pinocchio#2486](https://github.com/stack-of-tasks/pinocchio/issues/2486)).
+
+### Getting started with uv
+```shell
+# clone the main branch of this repository
+git clone https://github.com/zixingjiang/robot-viewer.git
+
+# run the viewer
+cd robot-viewer
 uv run rv
 ```
-The first run may take a while as it installs the required dependencies. After that, your browser will automatically launch and display the viewer interface.
 
-### CLI
+#### Installation (optional)
 
-You can use the `-h` flag to view all available command‑line options.
+If you’d like to run `rv` from anywhere in your terminal without the uv run prefix, you can install it to your PATH by running the following command in the project directory:
 
-### Installation
-
-If you’d like to install `rv` so it’s available on your PATH, run the following command in the project directory:
-
-```bash
+```shell
 uv tool install -e .
 ```
 
-This allows you to run `rv` directly from anywhere in your terminal, without needing the `uv run` prefix.
+### Getting started with pixi
+```shell
+# clone the pixi branch of this repository
+git clone https://github.com/zixingjiang/robot-viewer.git -b pixi
 
+# run the viewer
+cd robot-viewer
+pixi run -- rv
+```
 
+### CLI
+Please run `rv --help` to see the available CLI options.
 
 ## Usage
 ### View local URDF file
