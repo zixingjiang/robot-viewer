@@ -1,24 +1,28 @@
 [project]
-name = "robot-viewer"
-version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
 authors = [{ name = "Zixing Jiang", email = "ZixingJiang@outlook.com" }]
-requires-python = ">=3.13,<3.14"
-dependencies = [
-    "mypy>=1.19.1",
-    "pin-pink>=4.1.0",
-    "qpsolvers[open-source-solvers]>=4.10.0",
-    "robot-descriptions>=1.23.0",
-    "tyro>=1.0.9",
-    "viser>=1.0.24",
-    "xacrodoc>=2.0.0",
-    "yourdfpy>=0.0.60",
-]
+dependencies = ["xacrodoc>=2.0.0,<3", "tyro>=1.0.11,<2", "viser>=1.0.24,<2"]
+name = "robot-viewer"
+requires-python = "==3.13"
+version = "0.1.0"
 
 [project.scripts]
 rv = "robot_viewer.cli:run"
 
 [build-system]
-requires = ["uv_build>=0.10.10,<0.11.0"]
-build-backend = "uv_build"
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64", "linux-aarch64", "osx-64", "win-64"]
+
+[tool.pixi.pypi-dependencies]
+robot_viewer = { path = ".", editable = true }
+
+[tool.pixi.tasks]
+
+[tool.pixi.dependencies]
+python = "==3.13"
+qpsolvers = ">=4.10.0,<5"
+pink = ">=4.1.0,<5"
+robot_descriptions = ">=1.23.0,<2"
