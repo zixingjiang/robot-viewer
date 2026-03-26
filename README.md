@@ -42,7 +42,7 @@ Note: Your local file stays on your machine. It won't be uploaded to Internet.
 ### View robot from robot_descriptions
 Note: Internet connection is required to fetch the robot models from thier respective repositories.
 
-![](./image/open_rd.gif)
+![](./images/open_rd.gif)
 
 ### Visibility control
 ![](./images/visibility_control.gif)
