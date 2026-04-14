@@ -15,4 +15,4 @@ xacrodoc = ">=2.0.0,<3"
 yourdfpy = ">=0.0.60,<0.1"
 
 [tasks]
-rv = { cmd = 'python -c "from robot_viewer.cli import run; run()"', env = { PYTHONPATH = "src" } }
+rv = { cmd = "python -m robot_viewer.cli", env = { PYTHONPATH = "src" } }

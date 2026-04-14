@@ -49,7 +49,9 @@ pixi run rv
 ```
 
 ### CLI
-Please run `rv --help` to see the available CLI options.
+Please run one of the following to see the available CLI options:
+- `uv run rv --help`
+- `pixi run rv -- --help`
 
 ## Usage
 ### View local URDF file
