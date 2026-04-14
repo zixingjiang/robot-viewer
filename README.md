@@ -18,9 +18,11 @@ This repository contains `rv`, a simple web-based robot viewer powered by [Viser
 >[!Note] 
 >For Windows users, please use pixi as pink cannot be installed on Windows via uv at the moment (Refs: [stephane-caron/pink#138](https://github.com/stephane-caron/pink/issues/138), [stack-of-tasks/pinocchio#2486](https://github.com/stack-of-tasks/pinocchio/issues/2486)).
 
+`main` now supports both package managers. uv and pixi are kept in separate manifests (`pyproject.toml` and `pixi.toml`) to avoid cross-tool dependency conflicts.
+
 ### Getting started with uv
 ```shell
-# clone the main branch of this repository
+# clone this repository
 git clone https://github.com/zixingjiang/robot-viewer.git
 
 # run the viewer
@@ -38,16 +40,18 @@ uv tool install -e .
 
 ### Getting started with pixi
 ```shell
-# clone the pixi branch of this repository
-git clone https://github.com/zixingjiang/robot-viewer.git -b pixi
+# clone this repository
+git clone https://github.com/zixingjiang/robot-viewer.git
 
 # run the viewer
 cd robot-viewer
-pixi run -- rv
+pixi run rv
 ```
 
 ### CLI
-Please run `rv --help` to see the available CLI options.
+Please run one of the following to see the available CLI options:
+- `uv run rv --help`
+- `pixi run rv -- --help`
 
 ## Usage
 ### View local URDF file
