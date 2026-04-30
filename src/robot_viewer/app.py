@@ -8,13 +8,12 @@ from typing import Optional
 import viser
 
 from .ik import ik_worker_loop
-from .scene import prune_stale_robot_roots
+from .scene import prune_stale_robot_roots, set_ground_plane_visible, set_world_frame_visible
 from .state import ViewerState
 from .viewer import (
     load_startup_target,
     register_file_event_handlers,
-    setup_file_actions,
-    setup_viewer_actions,
+    setup_global_gui,
 )
 
 
@@ -48,10 +47,12 @@ def start_viewer_app(
             daemon=True,
         ).start()
 
-    status_text = setup_viewer_actions(server)
-    file_text, upload_button, description_dropdown, load_description_button = (
-        setup_file_actions(server)
+    status_text, upload_button, description_dropdown, load_description_button = (
+        setup_global_gui(server, state)
     )
+
+    set_ground_plane_visible(server, state, state.show_ground_plane)
+    set_world_frame_visible(server, state, state.show_world_frame)
 
     @server.on_client_connect
     def _on_client_connect(_client: viser.ClientHandle) -> None:
@@ -64,7 +65,6 @@ def start_viewer_app(
             path=path,
             rd=rd,
             status_text=status_text,
-            file_text=file_text,
             load_meshes=load_meshes,
         )
 
@@ -72,7 +72,6 @@ def start_viewer_app(
         server=server,
         state=state,
         status_text=status_text,
-        file_text=file_text,
         upload_button=upload_button,
         description_dropdown=description_dropdown,
         load_description_button=load_description_button,

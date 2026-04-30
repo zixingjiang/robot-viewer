@@ -10,7 +10,6 @@ def execute_model_load(
     state: Any,
     source: ModelSource,
     status_text: Any,
-    file_text: Any,
     load_meshes: bool,
     mount_loaded_robot: Callable[[Any, str], None],
     reload_connected_pages: Callable[[], None],
@@ -19,15 +18,10 @@ def execute_model_load(
 
     with state.load_lock:
         try:
-            had_previous_robot = state.current_urdf is not None
             result = source.load(load_meshes=load_meshes, tmp_dir=state.tmp_dir)
             mount_loaded_robot(result.urdf, result.source_path)
-            file_text.value = result.file_label
             status_text.value = f"Loaded {result.status_label}."
-            if had_previous_robot:
-                reload_connected_pages()
         except Exception as exc:
-            file_text.value = "No file loaded."
             if isinstance(exc, StartupFileNotFoundError):
                 status_text.value = str(exc)
             else:
