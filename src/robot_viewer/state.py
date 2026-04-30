@@ -24,8 +24,8 @@ from viser.extras import ViserUrdf
 @dataclass
 class RobotInstance:
     name: str
-    urdf: ViserUrdf
-    root_name: str
+    urdf: ViserUrdf | None = None
+    root_name: str = ""
     tab_handle: Any = None
     remove_button_handle: Any = None
 
@@ -45,6 +45,7 @@ class RobotInstance:
     joint_names: list[str] | None = None
     initial_config: list[float] | None = None
     joint_limits: list[tuple[float, float]] | None = None
+    qpos_adrs: list[int] | None = None
     randomize_button: GuiButtonHandle | None = None
     reset_button: GuiButtonHandle | None = None
     suppress_slider_callbacks: bool = False
@@ -80,6 +81,15 @@ class RobotInstance:
 
     link_frame_handles: dict[str, FrameHandle] = field(default_factory=dict)
     frame_name_handles: dict[str, Gui3dContainerHandle] = field(default_factory=dict)
+
+    mj_model: Any = None
+    mj_data: Any = None
+    mjcf_handle: Any = None
+    ik_uses_mink: bool = False
+    mink_configuration: Any = None
+    mink_tasks: list[Any] = field(default_factory=list)
+    mink_limits: list[Any] = field(default_factory=list)
+    mink_solver: str | None = None
 
 
 @dataclass

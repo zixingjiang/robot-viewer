@@ -287,6 +287,7 @@ def setup_cartesian_controls(
 
 
 def ik_worker_loop(state: ViewerState, status_text: Any) -> None:
+    from .mjcf import mink_ik_step
     from .viewer import update_link_frame_visuals
 
     limit_tol = 1e-9
@@ -297,6 +298,33 @@ def ik_worker_loop(state: ViewerState, status_text: Any) -> None:
         for robot in list(state.robots.values()):
             if not robot.ik_enabled:
                 continue
+
+            if robot.ik_uses_mink:
+                if not robot.mink_tasks or robot.mink_solver is None:
+                    continue
+                if robot.slider_handles is None or robot.qpos_adrs is None:
+                    continue
+
+                q = mink_ik_step(robot, state.ik_dt)
+                if q is None:
+                    if robot.cartesian_mode_checkbox is not None:
+                        robot.cartesian_mode_checkbox.value = False
+                    status_text.value = "Cartesian IK error with mink."
+                    continue
+
+                cfg = np.array([float(q[adr]) for adr in robot.qpos_adrs], dtype=float)
+
+                robot.suppress_slider_callbacks = True
+                try:
+                    for slider, value in zip(robot.slider_handles, cfg):
+                        slider.value = value
+                finally:
+                    robot.suppress_slider_callbacks = False
+
+                robot.mjcf_handle.set_joint_values(cfg, robot.qpos_adrs)
+                update_link_frame_visuals(robot)
+                continue
+
             if robot.ik_configuration is None or not robot.ik_tasks:
                 continue
             if (
@@ -329,7 +357,9 @@ def ik_worker_loop(state: ViewerState, status_text: Any) -> None:
                             if q_index is not None:
                                 q_recovered[q_index] = float(slider.value)
                         robot.ik_configuration.update(q_recovered)
-                    status_text.value = "Cartesian IK hit a joint limit; clamped to limits and continuing."
+                    status_text.value = (
+                        "Cartesian IK hit a joint limit; clamped to limits and continuing."
+                    )
                     continue
 
                 robot.ik_enabled = False

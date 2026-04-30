@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from importlib import import_module
 import os
+import xml.etree.ElementTree as ET
 from typing import Any, Callable, Protocol
 
 import yourdfpy  # type: ignore[import]
@@ -111,6 +112,47 @@ class RobotDescriptionModelSource:
         )
 
 
+def _detect_format(path: str) -> str:
+    """Return 'urdf', 'mjcf', or 'unknown' by sniffing the XML root element.
+
+    For non-XML files, falls back to extension-based detection.
+    """
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".mjb":
+        return "mjcf"
+
+    if ext not in (".urdf", ".xml"):
+        return "unknown"
+
+    try:
+        tree = ET.parse(path)
+        root = tree.getroot()
+    except Exception:
+        return "unknown"
+
+    tag = root.tag
+    if tag == "robot":
+        return "urdf"
+    if tag == "mujoco":
+        return "mjcf"
+    return "unknown"
+
+
+def load_mjcf(path: str) -> tuple[Any, Any]:
+    """Load an MJCF file with MuJoCo, returning (MjModel, MjData)."""
+    try:
+        import mujoco
+    except ImportError as exc:
+        raise RuntimeError(
+            "MJCF support requires 'mujoco'. Install with: pip install mujoco mink trimesh"
+        ) from exc
+
+    model = mujoco.MjModel.from_xml_path(path)
+    data = mujoco.MjData(model)
+    mujoco.mj_kinematics(model, data)
+    return model, data
+
+
 def get_robot_description_candidates() -> list[str]:
     try:
         from robot_descriptions import DESCRIPTIONS
@@ -124,6 +166,21 @@ def get_robot_description_candidates() -> list[str]:
     )
 
 
+def get_robot_description_mjcf_candidates() -> list[str]:
+    """Return robot_descriptions entries that have MJCF (but not URDF)."""
+    try:
+        from robot_descriptions import DESCRIPTIONS
+    except Exception:
+        return []
+
+    return sorted(
+        name
+        for name, description in DESCRIPTIONS.items()
+        if getattr(description, "has_mjcf", False)
+        and not getattr(description, "has_urdf", False)
+    )
+
+
 def load_urdf(path: str, load_meshes: bool) -> yourdfpy.URDF:
     return yourdfpy.URDF.load(
         path,
@@ -133,29 +190,40 @@ def load_urdf(path: str, load_meshes: bool) -> yourdfpy.URDF:
     )
 
 
-def _resolve_robot_description_urdf_path(description_name: str) -> tuple[str, str]:
+def _resolve_robot_description_module(description_name: str) -> tuple[Any, str]:
+    """Resolve a robot_descriptions module, returning (module, resolved_name)."""
     candidates = [description_name]
     if not description_name.endswith("_description"):
         candidates.append(f"{description_name}_description")
 
-    module = None
-    resolved_name = ""
     for candidate in candidates:
         module_name = f"robot_descriptions.{candidate}"
         try:
-            module = import_module(module_name)
-            resolved_name = candidate
-            break
+            return import_module(module_name), candidate
         except ModuleNotFoundError as exc:
             if exc.name != module_name:
                 raise
 
-    if module is None:
-        raise ModuleNotFoundError(
-            "Could not import robot description "
-            f"'{description_name}' as a robot_descriptions submodule"
-        )
+    raise ModuleNotFoundError(
+        "Could not import robot description "
+        f"'{description_name}' as a robot_descriptions submodule"
+    )
 
+
+def _detect_robot_description_format(description_name: str) -> str:
+    """Return 'urdf' or 'mjcf' for a robot_descriptions entry."""
+    module, _ = _resolve_robot_description_module(description_name)
+    if hasattr(module, "URDF_PATH") or hasattr(module, "XACRO_PATH"):
+        return "urdf"
+    if hasattr(module, "MJCF_PATH"):
+        return "mjcf"
+    raise RuntimeError(
+        f"Robot description '{description_name}' has no URDF, Xacro, or MJCF data"
+    )
+
+
+def _resolve_robot_description_urdf_path(description_name: str) -> tuple[str, str]:
+    module, resolved_name = _resolve_robot_description_module(description_name)
     if hasattr(module, "URDF_PATH"):
         return resolved_name, str(module.URDF_PATH)
     if hasattr(module, "XACRO_PATH"):
@@ -180,6 +248,34 @@ def load_robot_description_urdf(
 
     resolved_name, urdf_path = _resolve_robot_description_urdf_path(description_name)
     return resolved_name, load_rd(resolved_name), urdf_path
+
+
+def _resolve_robot_description_mjcf_path(description_name: str) -> tuple[str, str]:
+    """Resolve an MJCF path from a robot_descriptions entry."""
+    module, resolved_name = _resolve_robot_description_module(description_name)
+    if hasattr(module, "MJCF_PATH"):
+        return resolved_name, str(module.MJCF_PATH)
+
+    raise RuntimeError("Selected robot description does not provide MJCF data")
+
+
+def load_robot_description_mjcf(description_name: str) -> tuple[str, Any, Any, str]:
+    """Load an MJCF from a robot_descriptions entry.
+
+    Returns (resolved_name, MjModel, MjData, source_path).
+    """
+    try:
+        import mujoco
+    except ImportError as exc:
+        raise RuntimeError(
+            "MJCF support requires 'mujoco'. Install with: pip install mujoco mink trimesh"
+        ) from exc
+
+    resolved_name, mjcf_path = _resolve_robot_description_mjcf_path(description_name)
+    model = mujoco.MjModel.from_xml_path(mjcf_path)
+    data = mujoco.MjData(model)
+    mujoco.mj_kinematics(model, data)
+    return resolved_name, model, data, mjcf_path
 
 
 def execute_model_load(

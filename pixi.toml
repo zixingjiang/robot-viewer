@@ -14,5 +14,12 @@ viser = ">=1.0.24,<2"
 xacrodoc = ">=2.0.0,<3"
 yourdfpy = ">=0.0.60,<0.1"
 
+[feature.mjcf.dependencies]
+mujoco = ">=3.2.7,<4"
+
+[feature.mjcf.pypi-dependencies]
+mink = ">=1.1.0,<2"
+trimesh = ">=4.0,<5"
+
 [tasks]
 rv = { cmd = "python -m robot_viewer.cli", env = { PYTHONPATH = "src" } }

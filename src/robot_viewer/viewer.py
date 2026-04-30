@@ -25,11 +25,17 @@ from .loader import (
     PathModelSource,
     RobotDescriptionModelSource,
     UploadedModelSource,
+    _detect_format,
+    _detect_robot_description_format,
     execute_model_load,
     get_robot_description_candidates,
+    get_robot_description_mjcf_candidates,
+    load_mjcf,
+    load_robot_description_mjcf,
 )
+from .mjcf import ViserMjcf, setup_mink_ik
 from .state import RobotInstance, ViewerState
-from .utils import rotation_matrix_to_wxyz
+from .utils import rotation_matrix_to_wxyz, safe_write_file
 
 _ROBOT_ROOT_RE = re.compile(r"^/robot(?:_[0-9a-f]+)?(?:/|$)")
 
@@ -47,11 +53,18 @@ def update_transform_display(robot: RobotInstance) -> None:
     to_frame = robot.transform_to_dropdown.value
 
     try:
-        urdf = robot.urdf._urdf
-        world_from = urdf.get_transform(from_frame)
-        world_to = urdf.get_transform(to_frame)
-        from_to = np.linalg.inv(world_from) @ world_to
+        if robot.mjcf_handle is not None:
+            from_t = robot.mjcf_handle.get_body_transform(from_frame)
+            to_t = robot.mjcf_handle.get_body_transform(to_frame)
+        else:
+            urdf = robot.urdf._urdf
+            from_t = urdf.get_transform(from_frame)
+            to_t = urdf.get_transform(to_frame)
 
+        if from_t is None or to_t is None:
+            raise ValueError("Frame not found")
+
+        from_to = np.linalg.inv(from_t) @ to_t
         translation = from_to[:3, 3]
         rotation_wxyz = rotation_matrix_to_wxyz(from_to[:3, :3])
 
@@ -76,31 +89,56 @@ def update_transform_display(robot: RobotInstance) -> None:
 
 
 def update_link_frame_visuals(robot: RobotInstance) -> None:
-    urdf = robot.urdf._urdf
-    for link_name, frame_handle in robot.link_frame_handles.items():
-        try:
-            transform = urdf.get_transform(link_name)
-        except Exception:
-            continue
+    if robot.urdf is not None:
+        urdf = robot.urdf._urdf
+        for link_name, frame_handle in robot.link_frame_handles.items():
+            try:
+                transform = urdf.get_transform(link_name)
+            except Exception:
+                continue
 
-        frame_handle.wxyz = rotation_matrix_to_wxyz(transform[:3, :3])
-        frame_handle.position = (
-            float(transform[0, 3]),
-            float(transform[1, 3]),
-            float(transform[2, 3]),
-        )
-        frame_handle.visible = robot.show_link_frames
-
-        name_handle = robot.frame_name_handles.get(link_name)
-        if name_handle is not None:
-            name_handle.position = (
+            frame_handle.wxyz = rotation_matrix_to_wxyz(transform[:3, :3])
+            frame_handle.position = (
                 float(transform[0, 3]),
                 float(transform[1, 3]),
                 float(transform[2, 3]),
             )
-            name_handle.visible = robot.show_frame_names
+            frame_handle.visible = robot.show_link_frames
 
-    update_transform_display(robot)
+            name_handle = robot.frame_name_handles.get(link_name)
+            if name_handle is not None:
+                name_handle.position = (
+                    float(transform[0, 3]),
+                    float(transform[1, 3]),
+                    float(transform[2, 3]),
+                )
+                name_handle.visible = robot.show_frame_names
+
+        update_transform_display(robot)
+    elif robot.mjcf_handle is not None:
+        for body_name, frame_handle in robot.link_frame_handles.items():
+            transform = robot.mjcf_handle.get_body_transform(body_name)
+            if transform is None:
+                continue
+
+            frame_handle.wxyz = rotation_matrix_to_wxyz(transform[:3, :3])
+            frame_handle.position = (
+                float(transform[0, 3]),
+                float(transform[1, 3]),
+                float(transform[2, 3]),
+            )
+            frame_handle.visible = robot.show_link_frames
+
+            name_handle = robot.frame_name_handles.get(body_name)
+            if name_handle is not None:
+                name_handle.position = (
+                    float(transform[0, 3]),
+                    float(transform[1, 3]),
+                    float(transform[2, 3]),
+                )
+                name_handle.visible = robot.show_frame_names
+
+        update_transform_display(robot)
 
 
 def remove_link_frame_visuals(robot: RobotInstance) -> None:
@@ -120,24 +158,30 @@ def remove_link_frame_visuals(robot: RobotInstance) -> None:
 
 
 def create_link_frame_visuals(server: viser.ViserServer, robot: RobotInstance) -> None:
-    if robot.urdf is None or robot.root_name is None:
+    if robot.root_name is None:
         return
 
     remove_link_frame_visuals(robot)
 
-    urdf = robot.urdf._urdf
-    for link_name in urdf.link_map.keys():
-        safe_link_name = link_name.replace("/", "_")
+    if robot.urdf is not None:
+        names = list(robot.urdf._urdf.link_map.keys())
+    elif robot.mjcf_handle is not None:
+        names = robot.mjcf_handle.get_body_names()
+    else:
+        return
+
+    for name in names:
+        safe_name = name.replace("/", "_")
 
         frame_handle = server.scene.add_frame(
-            f"{robot.root_name}/frames/{safe_link_name}",
+            f"{robot.root_name}/frames/{safe_name}",
             axes_length=0.12,
             axes_radius=0.006,
             origin_radius=0.01,
             visible=robot.show_link_frames,
         )
         name_handle = server.scene.add_3d_gui_container(
-            f"{robot.root_name}/frame_names/{safe_link_name}",
+            f"{robot.root_name}/frame_names/{safe_name}",
             visible=robot.show_frame_names,
         )
         with name_handle:
@@ -150,13 +194,13 @@ def create_link_frame_visuals(server: viser.ViserServer, robot: RobotInstance) -
                     "font-size: 12px; font-weight: 500; "
                     "line-height: 1; padding: 0; margin: 0; white-space: nowrap;"
                     '">'
-                    f"{link_name}"
+                    f"{name}"
                     "</div>"
                 )
             )
 
-        robot.link_frame_handles[link_name] = frame_handle
-        robot.frame_name_handles[link_name] = name_handle
+        robot.link_frame_handles[name] = frame_handle
+        robot.frame_name_handles[name] = name_handle
 
     update_link_frame_visuals(robot)
 
@@ -269,10 +313,14 @@ def remove_robot(server: viser.ViserServer, state: ViewerState, name: str) -> No
                 robot.cartesian_target_handle.remove()
             except Exception:
                 pass
-        try:
-            robot.urdf.remove()
-        except Exception:
-            pass
+        if robot.urdf is not None:
+            try:
+                robot.urdf.remove()
+            except Exception:
+                pass
+
+    if robot.mjcf_handle is not None:
+        robot.mjcf_handle.remove()
 
     remove_link_frame_visuals(robot)
     del state.robots[name]
@@ -297,8 +345,13 @@ def _apply_joint_configuration(
         finally:
             robot.suppress_slider_callbacks = False
 
-    robot.urdf.update_cfg(values)
-    update_link_frame_visuals(robot)
+    if robot.mjcf_handle is not None:
+        if robot.qpos_adrs is not None:
+            robot.mjcf_handle.set_joint_values(values, robot.qpos_adrs)
+        update_link_frame_visuals(robot)
+    else:
+        robot.urdf.update_cfg(values)
+        update_link_frame_visuals(robot)
 
 
 def create_robot_control_sliders(
@@ -571,6 +624,287 @@ def load_robot_into_viewer(
         pass
 
 
+def load_mjcf_into_viewer(
+    server: viser.ViserServer,
+    state: ViewerState,
+    mj_model: Any,
+    mj_data: Any,
+    source_path: str,
+    status_text: Any,
+) -> None:
+    status_text.value = "Loading MJCF model..."
+
+    with state.load_lock:
+        robot_name = os.path.splitext(os.path.basename(source_path))[0]
+        base_name = robot_name
+        index = 1
+        while robot_name in state.robots:
+            robot_name = f"{base_name}_{index}"
+            index += 1
+
+        root_name = f"/mjcf_{robot_name.lower().replace(' ', '_')}"
+
+        root_frame = server.scene.add_frame(root_name, show_axes=False)
+        root_frame.visible = True
+
+        mjcf_handle = ViserMjcf(server, mj_model, mj_data, root_name)
+        mjcf_handle.create_visual_handles()
+
+        joints = mjcf_handle.get_joint_limits()
+        qpos_adrs = [j[3] for j in joints]
+        joint_names_mjcf = [j[0] for j in joints]
+        joint_limits_mjcf = [(j[1], j[2]) for j in joints]
+        initial_config_mjcf = [
+            min(max(0.0, lower + 0.5 * (upper - lower)), upper)
+            for lower, upper in joint_limits_mjcf
+        ]
+
+        robot = RobotInstance(
+            name=robot_name,
+            root_name=root_name,
+            root_frame_handle=root_frame,
+            show_visual_meshes=True,
+            mj_model=mj_model,
+            mj_data=mj_data,
+            mjcf_handle=mjcf_handle,
+            ik_uses_mink=True,
+        )
+
+        robot.tab_handle = state.tab_group_handle.add_tab(
+            robot_name, icon=viser.Icon.CUBE
+        )
+        with robot.tab_handle:
+            robot.visibility_folder_handle = server.gui.add_folder("Visibility")
+            with robot.visibility_folder_handle:
+                show_meshes_cb = server.gui.add_checkbox(
+                    "Meshes", initial_value=True
+                )
+                show_collision_cb: Any = None
+                if mjcf_handle._has_collision_geoms:
+                    show_collision_cb = server.gui.add_checkbox(
+                        "Collision", initial_value=False
+                    )
+                show_frames_cb = server.gui.add_checkbox(
+                    "Frames", initial_value=False
+                )
+                show_frame_names_cb = server.gui.add_checkbox(
+                    "Frame names", initial_value=False
+                )
+                root_control_cb = server.gui.add_checkbox(
+                    "Gizmo", initial_value=robot.show_root_control
+                )
+
+            robot.visibility_visual_checkbox = show_meshes_cb
+            robot.visibility_frames_checkbox = show_frames_cb
+            robot.visibility_frame_names_checkbox = show_frame_names_cb
+            robot.visibility_root_control_checkbox = root_control_cb
+
+            @show_meshes_cb.on_update
+            def _show_meshes_mjcf(_: object) -> None:
+                robot.show_visual_meshes = show_meshes_cb.value
+                for handle in list(mjcf_handle._dynamic_handles.values()) + list(
+                    mjcf_handle._fixed_handles.values()
+                ):
+                    handle.visible = robot.show_visual_meshes
+
+            @show_frames_cb.on_update
+            def _show_frames_mjcf(_: object) -> None:
+                robot.show_link_frames = show_frames_cb.value
+                if robot.show_link_frames:
+                    ensure_link_frame_visuals(server, robot)
+                update_link_frame_visuals(robot)
+
+            @show_frame_names_cb.on_update
+            def _show_frame_names_mjcf(_: object) -> None:
+                robot.show_frame_names = show_frame_names_cb.value
+                if robot.show_frame_names:
+                    ensure_link_frame_visuals(server, robot)
+                update_link_frame_visuals(robot)
+
+            if show_collision_cb is not None:
+                @show_collision_cb.on_update
+                def _show_collision_mjcf(_: object) -> None:
+                    mjcf_handle.set_collision_visible(show_collision_cb.value)
+
+            @root_control_cb.on_update
+            def _show_root_control_mjcf(_: object) -> None:
+                robot.show_root_control = root_control_cb.value
+                if robot.root_control_handle is not None:
+                    robot.root_control_handle.visible = robot.show_root_control
+
+            robot.control_folder_handle = server.gui.add_folder("Joint Control")
+            with robot.control_folder_handle:
+                slider_handles: list[viser.GuiInputHandle[float]] = []
+                for name, lower, upper, _ in joints:
+                    initial_pos = min(max(0.0, lower), upper)
+                    slider = server.gui.add_slider(
+                        label=name,
+                        min=lower,
+                        max=upper,
+                        step=1e-3,
+                        initial_value=initial_pos,
+                    )
+
+                    def _on_slider_update(
+                        _event: object, handles=slider_handles, adrs=qpos_adrs
+                    ):
+                        if robot.suppress_slider_callbacks or robot.ik_enabled:
+                            return
+                        values = np.array([h.value for h in handles])
+                        mjcf_handle.set_joint_values(values, adrs)
+                        update_link_frame_visuals(robot)
+
+                    slider.on_update(_on_slider_update)
+                    slider_handles.append(slider)
+
+                robot.slider_handles = slider_handles
+                robot.joint_names = joint_names_mjcf
+                robot.initial_config = initial_config_mjcf
+                robot.joint_limits = joint_limits_mjcf
+                robot.qpos_adrs = qpos_adrs
+
+                if slider_handles:
+                    mjcf_handle.set_joint_values(
+                        np.zeros(len(slider_handles)), qpos_adrs
+                    )
+
+                randomize_button = server.gui.add_button("Randomize")
+                robot.randomize_button = randomize_button
+
+                @randomize_button.on_click
+                def _on_randomize_mjcf(_: object) -> None:
+                    if robot.slider_handles is None or robot.joint_limits is None:
+                        return
+                    randomized = np.array(
+                        [
+                            np.random.uniform(lower, upper)
+                            for lower, upper in robot.joint_limits
+                        ],
+                        dtype=float,
+                    )
+                    robot.suppress_slider_callbacks = True
+                    try:
+                        for slider, value in zip(robot.slider_handles, randomized):
+                            slider.value = value
+                    finally:
+                        robot.suppress_slider_callbacks = False
+                    if robot.qpos_adrs is not None:
+                        mjcf_handle.set_joint_values(randomized, robot.qpos_adrs)
+                    update_link_frame_visuals(robot)
+
+                reset_button = server.gui.add_button("Reset")
+                robot.reset_button = reset_button
+
+                @reset_button.on_click
+                def _on_reset_mjcf(_: object) -> None:
+                    if robot.slider_handles is None or robot.initial_config is None:
+                        return
+                    robot.suppress_slider_callbacks = True
+                    try:
+                        for slider, value in zip(
+                            robot.slider_handles, robot.initial_config
+                        ):
+                            slider.value = value
+                    finally:
+                        robot.suppress_slider_callbacks = False
+                    if robot.qpos_adrs is not None:
+                        mjcf_handle.set_joint_values(
+                            np.array(robot.initial_config, dtype=float), robot.qpos_adrs
+                        )
+                    update_link_frame_visuals(robot)
+
+            robot.cartesian_folder_handle = server.gui.add_folder("Cartesian Control")
+            with robot.cartesian_folder_handle:
+                cartesian_mode_checkbox = server.gui.add_checkbox(
+                    "Enable", initial_value=False
+                )
+                robot.cartesian_mode_checkbox = cartesian_mode_checkbox
+                setup_mink_ik(
+                    server, robot, mj_model, status_text, cartesian_mode_checkbox
+                )
+
+            robot.transform_folder_handle = server.gui.add_folder("Get Transform")
+            with robot.transform_folder_handle:
+                body_names = mjcf_handle.get_body_names()
+                initial_frame = body_names[0] if body_names else ""
+                initial_to_frame = initial_frame
+                if robot.cartesian_frame_dropdown is not None:
+                    target_frame = robot.cartesian_frame_dropdown.value
+                    if target_frame in body_names:
+                        initial_to_frame = target_frame
+
+                from_dropdown = server.gui.add_dropdown(
+                    "From", options=body_names, initial_value=initial_frame
+                )
+                to_dropdown = server.gui.add_dropdown(
+                    "To", options=body_names, initial_value=initial_to_frame
+                )
+                translation_text = server.gui.add_text("Translation (x,y,z)", "")
+                rotation_text = server.gui.add_text("Rotation (w,x,y,z)", "")
+
+                robot.transform_from_dropdown = from_dropdown
+                robot.transform_to_dropdown = to_dropdown
+                robot.transform_translation_text = translation_text
+                robot.transform_rotation_text = rotation_text
+
+                @from_dropdown.on_update
+                def _on_transform_frame_change_mjcf(_event: object) -> None:
+                    update_transform_display(robot)
+
+                @to_dropdown.on_update
+                def _on_transform_target_change_mjcf(_event: object) -> None:
+                    update_transform_display(robot)
+
+                @translation_text.on_update
+                def _on_translation_text_edit_mjcf(_event: object) -> None:
+                    if not robot.suppress_transform_text_callbacks:
+                        update_transform_display(robot)
+
+                @rotation_text.on_update
+                def _on_rotation_text_edit_mjcf(_event: object) -> None:
+                    if not robot.suppress_transform_text_callbacks:
+                        update_transform_display(robot)
+
+        robot.root_control_handle = server.scene.add_transform_controls(
+            f"/gizmo_{robot_name.lower().replace(' ', '_')}",
+            scale=0.25,
+            line_width=3.0,
+            visible=robot.show_root_control,
+        )
+
+        if robot.root_frame_handle is not None:
+            robot.root_control_handle.position = robot.root_frame_handle.position
+            robot.root_control_handle.wxyz = robot.root_frame_handle.wxyz
+
+        @robot.root_control_handle.on_update
+        def _on_root_control_update_mjcf(_: object) -> None:
+            if robot.root_control_handle is None or robot.root_frame_handle is None:
+                return
+            robot.root_frame_handle.position = robot.root_control_handle.position
+            robot.root_frame_handle.wxyz = robot.root_control_handle.wxyz
+
+        state.robots[robot_name] = robot
+        update_transform_display(robot)
+
+        if state.remove_robots_folder is not None:
+            with state.remove_robots_folder:
+                robot.remove_button_handle = server.gui.add_button(
+                    f"\u00a0\u00a0Remove {robot_name}",
+                    color="red",
+                    icon=viser.Icon.TRASH,
+                )
+
+                @robot.remove_button_handle.on_click
+                def _on_remove_mjcf(_: object, _name: str = robot_name) -> None:
+                    remove_robot(server, state, _name)
+
+        status_text.value = f"Loaded {robot_name}."
+        try:
+            server.flush()
+        except Exception:
+            pass
+
+
 def setup_global_gui(
     server: viser.ViserServer,
     state: ViewerState,
@@ -582,7 +916,7 @@ def setup_global_gui(
 
     with tabs.add_tab("Controls", icon=viser.Icon.SETTINGS):
         with server.gui.add_folder("Viewer"):
-            status_text = server.gui.add_text("Status", "Open a URDF file to begin.")
+            status_text = server.gui.add_text("Status", "Open a file to begin.")
             reset_view_button = server.gui.add_button(
                 "\u00a0\u00a0Reset View", icon=viser.Icon.HOME_MOVE
             )
@@ -615,23 +949,26 @@ def setup_global_gui(
         state.remove_robots_folder = server.gui.add_folder("Robots")
         with state.remove_robots_folder:
             upload_button = server.gui.add_upload_button(
-                "\u00a0\u00a0Add from File",
+                "\u00a0\u00a0Load from File",
                 icon=viser.Icon.UPLOAD,
                 mime_type="*/*",
-                hint="Select a URDF file (.urdf, .xml).",
+                hint="Select a URDF or MJCF file.",
             )
 
             available_descriptions = get_robot_description_candidates()
+            mjcf_descriptions = get_robot_description_mjcf_candidates()
+            all_descriptions = available_descriptions + mjcf_descriptions
             description_dropdown: GuiDropdownHandle[str] | None = None
             load_description_button: GuiButtonHandle | None = None
-            if available_descriptions:
+            if all_descriptions:
                 description_dropdown = server.gui.add_dropdown(
                     "robot_descriptions",
-                    options=available_descriptions,
-                    initial_value=available_descriptions[0],
+                    options=all_descriptions,
+                    initial_value=all_descriptions[0],
                 )
                 load_description_button = server.gui.add_button(
-                    "\u00a0\u00a0Add from Robot Descriptions", icon=viser.Icon.UPLOAD
+                    "\u00a0\u00a0Load from Robot Descriptions",
+                    icon=viser.Icon.UPLOAD,
                 )
             else:
                 server.gui.add_markdown(
@@ -740,6 +1077,16 @@ def _mount_loaded_robot(
     return _mount
 
 
+def _load_mjcf_with_status(
+    server: viser.ViserServer,
+    state: ViewerState,
+    source_path: str,
+    status_text: Any,
+) -> None:
+    mj_model, mj_data = load_mjcf(source_path)
+    load_mjcf_into_viewer(server, state, mj_model, mj_data, source_path, status_text)
+
+
 def load_startup_target(
     server: viser.ViserServer,
     state: ViewerState,
@@ -748,19 +1095,47 @@ def load_startup_target(
     status_text: Any,
     load_meshes: bool,
 ) -> None:
-    source = RobotDescriptionModelSource(path) if rd else PathModelSource(path)
-    execute_model_load(
-        state=state,
-        source=source,
-        status_text=status_text,
-        load_meshes=load_meshes,
-        mount_loaded_robot=_mount_loaded_robot(
-            server=server,
-            state=state,
-            status_text=status_text,
-            load_meshes=load_meshes,
-        ),
-    )
+    if rd:
+        fmt = _detect_robot_description_format(path)
+        if fmt == "mjcf":
+            resolved_name, mj_model, mj_data, mjcf_path = (
+                load_robot_description_mjcf(path)
+            )
+            load_mjcf_into_viewer(
+                server, state, mj_model, mj_data, mjcf_path, status_text
+            )
+        else:
+            source = RobotDescriptionModelSource(path)
+            execute_model_load(
+                state=state,
+                source=source,
+                status_text=status_text,
+                load_meshes=load_meshes,
+                mount_loaded_robot=_mount_loaded_robot(
+                    server=server,
+                    state=state,
+                    status_text=status_text,
+                    load_meshes=load_meshes,
+                ),
+            )
+    else:
+        fmt = _detect_format(path)
+        if fmt == "mjcf":
+            _load_mjcf_with_status(server, state, path, status_text)
+        else:
+            source = PathModelSource(path)
+            execute_model_load(
+                state=state,
+                source=source,
+                status_text=status_text,
+                load_meshes=load_meshes,
+                mount_loaded_robot=_mount_loaded_robot(
+                    server=server,
+                    state=state,
+                    status_text=status_text,
+                    load_meshes=load_meshes,
+                ),
+            )
 
 
 def register_file_event_handlers(
@@ -778,33 +1153,54 @@ def register_file_event_handlers(
         if uploaded is None:
             return
 
-        execute_model_load(
-            state=state,
-            source=UploadedModelSource(uploaded),
-            status_text=status_text,
-            load_meshes=load_meshes,
-            mount_loaded_robot=_mount_loaded_robot(
-                server=server,
+        if str(uploaded.name).endswith(".mjb"):
+            source_path = safe_write_file(uploaded, state.tmp_dir)
+            _load_mjcf_with_status(server, state, source_path, status_text)
+            return
+
+        source_path = safe_write_file(uploaded, state.tmp_dir)
+        fmt = _detect_format(source_path)
+        if fmt == "mjcf":
+            _load_mjcf_with_status(server, state, source_path, status_text)
+        else:
+            execute_model_load(
                 state=state,
+                source=UploadedModelSource(uploaded),
                 status_text=status_text,
                 load_meshes=load_meshes,
-            ),
-        )
+                mount_loaded_robot=_mount_loaded_robot(
+                    server=server,
+                    state=state,
+                    status_text=status_text,
+                    load_meshes=load_meshes,
+                ),
+            )
 
     if description_dropdown is None or load_description_button is None:
         return
 
     @load_description_button.on_click
     def _on_load_robot_description(_event: GuiEvent[GuiButtonHandle]) -> None:
-        execute_model_load(
-            state=state,
-            source=RobotDescriptionModelSource(description_dropdown.value),
-            status_text=status_text,
-            load_meshes=load_meshes,
-            mount_loaded_robot=_mount_loaded_robot(
-                server=server,
+        name = description_dropdown.value
+        fmt = _detect_robot_description_format(name)
+        if fmt == "mjcf":
+            resolved_name, mj_model, mj_data, mjcf_path = (
+                load_robot_description_mjcf(name)
+            )
+            load_mjcf_into_viewer(
+                server, state, mj_model, mj_data, mjcf_path, status_text
+            )
+        else:
+            source = RobotDescriptionModelSource(name)
+            execute_model_load(
                 state=state,
+                source=source,
                 status_text=status_text,
                 load_meshes=load_meshes,
-            ),
-        )
+                mount_loaded_robot=_mount_loaded_robot(
+                    server=server,
+                    state=state,
+                    status_text=status_text,
+                    load_meshes=load_meshes,
+                ),
+            )
