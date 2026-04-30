@@ -350,6 +350,17 @@ class ViserMjcf:
                 pass
         self._collision_fixed.clear()
 
+    def clear(self) -> None:
+        """Clear all handle references without removing from scene.
+
+        Use when handles have already been removed by a parent node's
+        recursive removal, to avoid duplicate-removal warnings.
+        """
+        self._dynamic_handles.clear()
+        self._fixed_handles.clear()
+        self._collision_dynamic.clear()
+        self._collision_fixed.clear()
+
     def set_collision_visible(self, visible: bool) -> None:
         """Show or hide collision meshes."""
         for handle in list(self._collision_dynamic.values()) + list(

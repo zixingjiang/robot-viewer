@@ -306,20 +306,25 @@ def remove_robot(server: viser.ViserServer, state: ViewerState, name: str) -> No
             robot.cartesian_target_handle.remove()
         except Exception:
             pass
-    if robot.urdf is not None:
-        try:
-            robot.urdf.remove()
-        except Exception:
-            pass
-    if robot.mjcf_handle is not None:
-        robot.mjcf_handle.remove()
 
-    remove_link_frame_visuals(robot)
-
+    # Remove the entire scene subtree recursively in one shot.
+    # This avoids "already removed" warnings that occur when individual
+    # handles are removed first and then remove_by_name tries to remove
+    # the same nodes again via BFS.
     try:
         server.scene.remove_by_name(robot.root_name)
     except Exception:
         pass
+
+    # Clear handle references without calling .remove() on individual
+    # handles — they were already removed by remove_by_name above.
+    if robot.urdf is not None:
+        robot.urdf._joint_frames.clear()
+        robot.urdf._meshes.clear()
+    if robot.mjcf_handle is not None:
+        robot.mjcf_handle.clear()
+    robot.link_frame_handles.clear()
+    robot.frame_name_handles.clear()
 
     del state.robots[name]
 
