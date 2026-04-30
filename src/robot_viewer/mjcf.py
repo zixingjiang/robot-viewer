@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import qpsolvers
 import trimesh
 import viser
 import viser.transforms as vtf
@@ -378,7 +379,10 @@ def setup_mink_ik(
     try:
         configuration = mink.Configuration(mj_model)
         robot.mink_configuration = configuration
-        robot.mink_solver = "daqp"
+        robot.mink_solver = (
+            "daqp" if "daqp" in qpsolvers.available_solvers
+            else qpsolvers.available_solvers[0]
+        )
 
         pin_frame_names: set[str] = set()
         if hasattr(mj_model, "frames"):

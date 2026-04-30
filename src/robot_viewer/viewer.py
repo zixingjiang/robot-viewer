@@ -301,28 +301,26 @@ def remove_robot(server: viser.ViserServer, state: ViewerState, name: str) -> No
         except Exception:
             pass
 
-    try:
-        server.scene.remove_by_name(robot.root_name)
-        removed_root = True
-    except Exception:
-        removed_root = False
-
-    if not removed_root:
-        if robot.cartesian_target_handle is not None:
-            try:
-                robot.cartesian_target_handle.remove()
-            except Exception:
-                pass
-        if robot.urdf is not None:
-            try:
-                robot.urdf.remove()
-            except Exception:
-                pass
-
+    if robot.cartesian_target_handle is not None:
+        try:
+            robot.cartesian_target_handle.remove()
+        except Exception:
+            pass
+    if robot.urdf is not None:
+        try:
+            robot.urdf.remove()
+        except Exception:
+            pass
     if robot.mjcf_handle is not None:
         robot.mjcf_handle.remove()
 
     remove_link_frame_visuals(robot)
+
+    try:
+        server.scene.remove_by_name(robot.root_name)
+    except Exception:
+        pass
+
     del state.robots[name]
 
 

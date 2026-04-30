@@ -1446,38 +1446,33 @@ name = "robot-viewer"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "mink" },
+    { name = "mujoco" },
     { name = "mypy" },
     { name = "pin-pink" },
-    { name = "qpsolvers", extra = ["open-source-solvers"] },
+    { name = "qpsolvers", extra = ["daqp", "open-source-solvers"] },
     { name = "robot-descriptions" },
+    { name = "trimesh" },
     { name = "tyro" },
     { name = "viser" },
     { name = "xacrodoc" },
     { name = "yourdfpy" },
 ]
 
-[package.optional-dependencies]
-mjcf = [
-    { name = "mink" },
-    { name = "mujoco" },
-    { name = "trimesh" },
-]
-
 [package.metadata]
 requires-dist = [
-    { name = "mink", marker = "extra == 'mjcf'", specifier = ">=1.1" },
-    { name = "mujoco", marker = "extra == 'mjcf'", specifier = ">=3.2" },
+    { name = "mink", specifier = ">=1.1" },
+    { name = "mujoco", specifier = ">=3.2" },
     { name = "mypy", specifier = ">=1.19.1" },
     { name = "pin-pink", specifier = ">=4.1.0" },
-    { name = "qpsolvers", extras = ["open-source-solvers"], specifier = ">=4.10.0" },
+    { name = "qpsolvers", extras = ["open-source-solvers", "daqp"], specifier = ">=4.10.0" },
     { name = "robot-descriptions", specifier = ">=1.23.0" },
-    { name = "trimesh", marker = "extra == 'mjcf'", specifier = ">=4.0" },
+    { name = "trimesh", specifier = ">=4.0" },
     { name = "tyro", specifier = ">=1.0.9" },
     { name = "viser", specifier = ">=1.0.24" },
     { name = "xacrodoc", specifier = ">=2.0.0" },
     { name = "yourdfpy", specifier = ">=0.0.60" },
 ]
-provides-extras = ["mjcf"]
 
 [[package]]
 name = "rospkg"
