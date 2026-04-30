@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import time
 from typing import Any, Callable
 
@@ -20,23 +21,266 @@ from viser._gui_handles import (
 from viser.extras import ViserUrdf
 
 from .ik import setup_cartesian_controls
-from .load_pipeline import execute_model_load
-from .loader import get_robot_description_candidates
-from .model_sources import (
+from .loader import (
     PathModelSource,
     RobotDescriptionModelSource,
     UploadedModelSource,
-)
-from .scene import (
-    create_link_frame_visuals,
-    ensure_link_frame_visuals,
-    remove_robot,
-    set_ground_plane_visible,
-    set_world_frame_visible,
-    update_link_frame_visuals,
-    update_transform_display,
+    execute_model_load,
+    get_robot_description_candidates,
 )
 from .state import RobotInstance, ViewerState
+from .utils import rotation_matrix_to_wxyz
+
+_ROBOT_ROOT_RE = re.compile(r"^/robot(?:_[0-9a-f]+)?(?:/|$)")
+
+
+def update_transform_display(robot: RobotInstance) -> None:
+    if (
+        robot.transform_from_dropdown is None
+        or robot.transform_to_dropdown is None
+        or robot.transform_translation_text is None
+        or robot.transform_rotation_text is None
+    ):
+        return
+
+    from_frame = robot.transform_from_dropdown.value
+    to_frame = robot.transform_to_dropdown.value
+
+    try:
+        urdf = robot.urdf._urdf
+        world_from = urdf.get_transform(from_frame)
+        world_to = urdf.get_transform(to_frame)
+        from_to = np.linalg.inv(world_from) @ world_to
+
+        translation = from_to[:3, 3]
+        rotation_wxyz = rotation_matrix_to_wxyz(from_to[:3, :3])
+
+        robot.suppress_transform_text_callbacks = True
+        try:
+            robot.transform_translation_text.value = (
+                f"{translation[0]:.4f}, {translation[1]:.4f}, {translation[2]:.4f}"
+            )
+            robot.transform_rotation_text.value = (
+                f"{rotation_wxyz[0]:.4f}, {rotation_wxyz[1]:.4f}, "
+                f"{rotation_wxyz[2]:.4f}, {rotation_wxyz[3]:.4f}"
+            )
+        finally:
+            robot.suppress_transform_text_callbacks = False
+    except Exception:
+        robot.suppress_transform_text_callbacks = True
+        try:
+            robot.transform_translation_text.value = "N/A"
+            robot.transform_rotation_text.value = "N/A"
+        finally:
+            robot.suppress_transform_text_callbacks = False
+
+
+def update_link_frame_visuals(robot: RobotInstance) -> None:
+    urdf = robot.urdf._urdf
+    for link_name, frame_handle in robot.link_frame_handles.items():
+        try:
+            transform = urdf.get_transform(link_name)
+        except Exception:
+            continue
+
+        frame_handle.wxyz = rotation_matrix_to_wxyz(transform[:3, :3])
+        frame_handle.position = (
+            float(transform[0, 3]),
+            float(transform[1, 3]),
+            float(transform[2, 3]),
+        )
+        frame_handle.visible = robot.show_link_frames
+
+        name_handle = robot.frame_name_handles.get(link_name)
+        if name_handle is not None:
+            name_handle.position = (
+                float(transform[0, 3]),
+                float(transform[1, 3]),
+                float(transform[2, 3]),
+            )
+            name_handle.visible = robot.show_frame_names
+
+    update_transform_display(robot)
+
+
+def remove_link_frame_visuals(robot: RobotInstance) -> None:
+    for handle in robot.link_frame_handles.values():
+        try:
+            handle.remove()
+        except Exception:
+            pass
+    robot.link_frame_handles.clear()
+
+    for handle in robot.frame_name_handles.values():
+        try:
+            handle.remove()
+        except Exception:
+            pass
+    robot.frame_name_handles.clear()
+
+
+def create_link_frame_visuals(server: viser.ViserServer, robot: RobotInstance) -> None:
+    if robot.urdf is None or robot.root_name is None:
+        return
+
+    remove_link_frame_visuals(robot)
+
+    urdf = robot.urdf._urdf
+    for link_name in urdf.link_map.keys():
+        safe_link_name = link_name.replace("/", "_")
+
+        frame_handle = server.scene.add_frame(
+            f"{robot.root_name}/frames/{safe_link_name}",
+            axes_length=0.12,
+            axes_radius=0.006,
+            origin_radius=0.01,
+            visible=robot.show_link_frames,
+        )
+        name_handle = server.scene.add_3d_gui_container(
+            f"{robot.root_name}/frame_names/{safe_link_name}",
+            visible=robot.show_frame_names,
+        )
+        with name_handle:
+            server.gui.add_html(
+                (
+                    '<div style="'
+                    "display: inline-block; width: fit-content; "
+                    "background: transparent; color: #111; "
+                    "font-family: ui-monospace, SFMono-Regular, Menlo, monospace; "
+                    "font-size: 12px; font-weight: 500; "
+                    "line-height: 1; padding: 0; margin: 0; white-space: nowrap;"
+                    '">'
+                    f"{link_name}"
+                    "</div>"
+                )
+            )
+
+        robot.link_frame_handles[link_name] = frame_handle
+        robot.frame_name_handles[link_name] = name_handle
+
+    update_link_frame_visuals(robot)
+
+
+def ensure_link_frame_visuals(server: viser.ViserServer, robot: RobotInstance) -> None:
+    if robot.link_frame_handles and robot.frame_name_handles:
+        return
+    create_link_frame_visuals(server, robot)
+
+
+def set_ground_plane_visible(
+    server: viser.ViserServer,
+    state: ViewerState,
+    visible: bool,
+) -> None:
+    if not visible:
+        if state.ground_plane_handle is not None:
+            state.ground_plane_handle.visible = False
+        return
+
+    if state.ground_plane_handle is not None:
+        state.ground_plane_handle.visible = True
+        return
+
+    width, height = state.ground_plane_size
+    state.ground_plane_handle = server.scene.add_grid(
+        "/grid",
+        width=width,
+        height=height,
+        position=(0.0, 0.0, 0.0),
+        infinite_grid=False,
+    )
+    state.ground_plane_handle.visible = True
+
+
+def set_world_frame_visible(
+    server: viser.ViserServer,
+    state: ViewerState,
+    visible: bool,
+) -> None:
+    server.scene.world_axes.visible = visible
+
+
+def _discover_robot_roots(server: viser.ViserServer) -> set[str]:
+    scene_handles = getattr(server.scene, "_handle_from_node_name", None)
+    if not isinstance(scene_handles, dict):
+        return set()
+
+    roots: set[str] = set()
+    for node_name in scene_handles.keys():
+        if not _ROBOT_ROOT_RE.match(node_name):
+            continue
+        parts = node_name.split("/", 2)
+        if len(parts) >= 2 and parts[1]:
+            roots.add(f"/{parts[1]}")
+    return roots
+
+
+def prune_stale_robot_roots(server: viser.ViserServer, state: ViewerState) -> None:
+    discovered_roots = _discover_robot_roots(server)
+    active_roots = {robot.root_name for robot in state.robots.values()}
+
+    for root_name in discovered_roots:
+        if root_name in active_roots:
+            continue
+        try:
+            server.scene.remove_by_name(root_name)
+        except Exception:
+            continue
+
+
+def remove_robot(server: viser.ViserServer, state: ViewerState, name: str) -> None:
+    robot = state.robots.get(name)
+    if robot is None:
+        return
+
+    robot.ik_enabled = False
+
+    if robot.tab_handle is not None:
+        try:
+            tab_parent = robot.tab_handle._parent
+            robot.tab_handle.remove()
+            tab_parent._tab_container_ids = tuple(
+                h._id for h in tab_parent._tab_handles
+            )
+        except Exception:
+            pass
+
+    if robot.remove_button_handle is not None:
+        try:
+            robot.remove_button_handle.remove()
+        except Exception:
+            pass
+
+    if robot.root_control_handle is not None:
+        try:
+            robot.root_control_handle.remove()
+        except Exception:
+            pass
+
+    try:
+        server.scene.remove_by_name(robot.root_name)
+        removed_root = True
+    except Exception:
+        removed_root = False
+
+    if not removed_root:
+        if robot.cartesian_target_handle is not None:
+            try:
+                robot.cartesian_target_handle.remove()
+            except Exception:
+                pass
+        try:
+            robot.urdf.remove()
+        except Exception:
+            pass
+
+    remove_link_frame_visuals(robot)
+    del state.robots[name]
+
+
+def clear_all_robots(server: viser.ViserServer, state: ViewerState) -> None:
+    for name in list(state.robots.keys()):
+        remove_robot(server, state, name)
 
 
 def _apply_joint_configuration(
@@ -234,10 +478,17 @@ def load_robot_into_viewer(
 
         robot.cartesian_folder_handle = server.gui.add_folder("Cartesian Control")
         with robot.cartesian_folder_handle:
-            cartesian_mode_checkbox = server.gui.add_checkbox("Enable", initial_value=False)
+            cartesian_mode_checkbox = server.gui.add_checkbox(
+                "Enable", initial_value=False
+            )
             robot.cartesian_mode_checkbox = cartesian_mode_checkbox
             setup_cartesian_controls(
-                server, robot, source_path, state.tmp_dir, status_text, cartesian_mode_checkbox
+                server,
+                robot,
+                source_path,
+                state.tmp_dir,
+                status_text,
+                cartesian_mode_checkbox,
             )
 
         robot.transform_folder_handle = server.gui.add_folder("Get Transform")
@@ -289,7 +540,6 @@ def load_robot_into_viewer(
         visible=robot.show_root_control,
     )
 
-    # Initialize the control handle at the robot's root position
     if robot.root_frame_handle is not None:
         robot.root_control_handle.position = robot.root_frame_handle.position
         robot.root_control_handle.wxyz = robot.root_frame_handle.wxyz
@@ -309,6 +559,7 @@ def load_robot_into_viewer(
             robot.remove_button_handle = server.gui.add_button(
                 f"\u00a0\u00a0Remove {robot_name}", color="red", icon=viser.Icon.TRASH
             )
+
             @robot.remove_button_handle.on_click
             def _on_remove(_: object, _name: str = robot_name) -> None:
                 remove_robot(server, state, _name)
@@ -323,15 +574,21 @@ def load_robot_into_viewer(
 def setup_global_gui(
     server: viser.ViserServer,
     state: ViewerState,
-) -> tuple[Any, GuiUploadButtonHandle, GuiDropdownHandle[str] | None, GuiButtonHandle | None]:
+) -> tuple[
+    Any, GuiUploadButtonHandle, GuiDropdownHandle[str] | None, GuiButtonHandle | None
+]:
     tabs = server.gui.add_tab_group()
     state.tab_group_handle = tabs
 
     with tabs.add_tab("Controls", icon=viser.Icon.SETTINGS):
         with server.gui.add_folder("Viewer"):
             status_text = server.gui.add_text("Status", "Open a URDF file to begin.")
-            reset_view_button = server.gui.add_button("\u00a0\u00a0Reset View", icon=viser.Icon.HOME_MOVE)
-            save_canvas_button = server.gui.add_button("\u00a0\u00a0Save Canvas", icon=viser.Icon.PHOTO)
+            reset_view_button = server.gui.add_button(
+                "\u00a0\u00a0Reset View", icon=viser.Icon.HOME_MOVE
+            )
+            save_canvas_button = server.gui.add_button(
+                "\u00a0\u00a0Save Canvas", icon=viser.Icon.PHOTO
+            )
         ground_plane_folder = server.gui.add_folder("Ground Plane")
         with ground_plane_folder:
             ground_plane_cb = server.gui.add_checkbox(
@@ -476,7 +733,9 @@ def _mount_loaded_robot(
     load_meshes: bool,
 ) -> Callable[[yourdfpy.URDF, str], None]:
     def _mount(urdf: yourdfpy.URDF, source_path: str) -> None:
-        load_robot_into_viewer(server, state, urdf, source_path, status_text, load_meshes)
+        load_robot_into_viewer(
+            server, state, urdf, source_path, status_text, load_meshes
+        )
 
     return _mount
 
@@ -501,7 +760,6 @@ def load_startup_target(
             status_text=status_text,
             load_meshes=load_meshes,
         ),
-        reload_connected_pages=lambda: _reload_connected_pages(server),
     )
 
 
@@ -531,7 +789,6 @@ def register_file_event_handlers(
                 status_text=status_text,
                 load_meshes=load_meshes,
             ),
-            reload_connected_pages=lambda: _reload_connected_pages(server),
         )
 
     if description_dropdown is None or load_description_button is None:
@@ -550,5 +807,4 @@ def register_file_event_handlers(
                 status_text=status_text,
                 load_meshes=load_meshes,
             ),
-            reload_connected_pages=lambda: _reload_connected_pages(server),
         )

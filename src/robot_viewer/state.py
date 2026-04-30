@@ -13,7 +13,11 @@ from viser._gui_handles import (
     GuiDropdownHandle,
     GuiFolderHandle,
 )
-from viser._scene_handles import FrameHandle, Gui3dContainerHandle, TransformControlsHandle
+from viser._scene_handles import (
+    FrameHandle,
+    Gui3dContainerHandle,
+    TransformControlsHandle,
+)
 from viser.extras import ViserUrdf
 
 

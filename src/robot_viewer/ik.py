@@ -287,7 +287,7 @@ def setup_cartesian_controls(
 
 
 def ik_worker_loop(state: ViewerState, status_text: Any) -> None:
-    from .scene import update_link_frame_visuals
+    from .viewer import update_link_frame_visuals
 
     limit_tol = 1e-9
 
@@ -329,9 +329,7 @@ def ik_worker_loop(state: ViewerState, status_text: Any) -> None:
                             if q_index is not None:
                                 q_recovered[q_index] = float(slider.value)
                         robot.ik_configuration.update(q_recovered)
-                    status_text.value = (
-                        "Cartesian IK hit a joint limit; clamped to limits and continuing."
-                    )
+                    status_text.value = "Cartesian IK hit a joint limit; clamped to limits and continuing."
                     continue
 
                 robot.ik_enabled = False
