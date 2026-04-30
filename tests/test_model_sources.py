@@ -6,7 +6,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from robot_viewer.model_sources import (
+from robot_viewer.loader import (
     PathModelSource,
     RobotDescriptionModelSource,
     UploadedModelSource,
@@ -20,7 +20,7 @@ class ModelSourcesTests(unittest.TestCase):
             with open(relative_path, "w", encoding="utf-8") as urdf_file:
                 urdf_file.write("<robot name='test'/>")
 
-            with patch("robot_viewer.model_sources.load_urdf", return_value="URDF") as mock:
+            with patch("robot_viewer.loader.load_urdf", return_value="URDF") as mock:
                 source = PathModelSource(relative_path)
                 result = source.load(load_meshes=True, tmp_dir=temp_dir)
 
@@ -39,11 +39,11 @@ class ModelSourcesTests(unittest.TestCase):
     def test_uploaded_model_source_writes_temp_file_then_loads(self) -> None:
         uploaded = SimpleNamespace(name="uploaded.urdf", content=b"<robot/>")
         with patch(
-            "robot_viewer.model_sources.safe_write_file",
+            "robot_viewer.loader.safe_write_file",
             return_value="/tmp/uploaded.urdf",
         ) as mock_write:
             with patch(
-                "robot_viewer.model_sources.load_urdf",
+                "robot_viewer.loader.load_urdf",
                 return_value="UPLOADED_URDF",
             ) as mock_load:
                 source = UploadedModelSource(uploaded)
@@ -60,7 +60,7 @@ class ModelSourcesTests(unittest.TestCase):
 
     def test_robot_description_model_source_loads_resolved_name(self) -> None:
         with patch(
-            "robot_viewer.model_sources.load_robot_description_urdf",
+            "robot_viewer.loader.load_robot_description_urdf",
             return_value=("ur5_description", "URDF_OBJECT", "/tmp/ur5.urdf"),
         ) as mock_load:
             source = RobotDescriptionModelSource("ur5")

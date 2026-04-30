@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from robot_viewer.app import start_viewer_app
+from robot_viewer.cli import start_viewer_app
 
 
 class _FakeThread:
@@ -44,7 +44,7 @@ class _FakeServer:
 class AppStartupTests(unittest.TestCase):
     def test_start_viewer_app_wires_startup_and_handlers(self) -> None:
         fake_server = _FakeServer("127.0.0.1", 9090, "Robot Viewer")
-        fake_file_text = object()
+        fake_status = object()
         fake_upload_button = object()
         fake_dropdown = object()
         fake_load_button = object()
@@ -55,33 +55,32 @@ class AppStartupTests(unittest.TestCase):
             created_threads.append(thread)
             return thread
 
-        with patch("robot_viewer.app.tempfile.mkdtemp", return_value="/tmp/rv"):
-            with patch("robot_viewer.app.viser.ViserServer", return_value=fake_server):
-                with patch("robot_viewer.app.threading.Thread", side_effect=_thread_factory):
+        with patch("robot_viewer.cli.tempfile.mkdtemp", return_value="/tmp/rv"):
+            with patch("robot_viewer.cli.viser.ViserServer", return_value=fake_server):
+                with patch("robot_viewer.cli.threading.Thread", side_effect=_thread_factory):
                     with patch(
-                        "robot_viewer.app.setup_viewer_actions", return_value="status-handle"
+                        "robot_viewer.cli.setup_global_gui",
+                        return_value=(
+                            fake_status,
+                            fake_upload_button,
+                            fake_dropdown,
+                            fake_load_button,
+                        ),
                     ):
-                        with patch(
-                            "robot_viewer.app.setup_file_actions",
-                            return_value=(
-                                fake_file_text,
-                                fake_upload_button,
-                                fake_dropdown,
-                                fake_load_button,
-                            ),
-                        ):
-                            with patch("robot_viewer.app.load_startup_target") as load_startup:
-                                with patch(
-                                    "robot_viewer.app.register_file_event_handlers"
-                                ) as register_handlers:
-                                    with patch("robot_viewer.app.prune_stale_robot_roots"):
-                                        start_viewer_app(
-                                            path="robot.urdf",
-                                            host="127.0.0.1",
-                                            port=9090,
-                                            rd=False,
-                                            open_browser=False,
-                                        )
+                        with patch("robot_viewer.cli.set_ground_plane_visible"):
+                            with patch("robot_viewer.cli.set_world_frame_visible"):
+                                with patch("robot_viewer.cli.load_startup_target") as load_startup:
+                                    with patch(
+                                        "robot_viewer.cli.register_file_event_handlers"
+                                    ) as register_handlers:
+                                        with patch("robot_viewer.cli.prune_stale_robot_roots"):
+                                            start_viewer_app(
+                                                path="robot.urdf",
+                                                host="127.0.0.1",
+                                                port=9090,
+                                                rd=False,
+                                                open_browser=False,
+                                            )
 
         self.assertEqual(load_startup.call_count, 1)
         self.assertEqual(register_handlers.call_count, 1)
