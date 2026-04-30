@@ -6,9 +6,9 @@
 This repository contains `rv`, a simple web-based robot viewer powered by [Viser](https://viser.studio/main/).
 
 ## Features
-- Visualize robot models in 3D, supports [URDF](https://wiki.ros.org/urdf) and [MJCF](https://mujoco.readthedocs.io/en/stable/modeling.html).
-- Interact with the robot via joint and Cartesian controls (powered by [pink](https://github.com/stephane-caron/pink) and [mink](https://github.com/kevinzakka/mink)).
-- Access 175+ robot models from [robot_descriptions](https://github.com/robot-descriptions/robot_descriptions.py) (including [mujoco_menagerie](https://github.com/google-deepmind/mujoco_menagerie)).
+- Visualize robot models in 3D with support for [URDF](https://wiki.ros.org/urdf) and [MJCF](https://mujoco.readthedocs.io/en/stable/modeling.html).
+- Interact with robots through joint‑space and Cartesian controls, powered by [pink](https://github.com/stephane-caron/pink) and [mink](https://github.com/kevinzakka/mink).
+- Access a library of 175+ robot models from [robot_descriptions](https://github.com/robot-descriptions/robot_descriptions.py), including those from the [mujoco_menagerie](https://github.com/google-deepmind/mujoco_menagerie).
 
 ## Getting Started
 It's recommended to use a package manager to run `rv`, as it will take care of installing the dependencies for you. `rv` supports either [uv](https://docs.astral.sh/uv/getting-started/installation/) or [pixi](https://pixi.prefix.dev/latest/installation/). Use the one you prefer.
@@ -42,6 +42,8 @@ Follow the instructions below to get started:
     ```shell
     alias rv="cd /path/to/robot-viewer && pixi run rv"
     ```
+
+## Acknoledgement
 
 ## License
 This repository is released under the [MIT License](LICENSE). 
