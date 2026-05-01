@@ -487,6 +487,12 @@ def load_robot_into_viewer(
             robot.show_root_control = root_control_cb.value
             if robot.root_control_handle is not None:
                 robot.root_control_handle.visible = robot.show_root_control
+                if robot.show_root_control and robot.root_frame_handle is not None:
+                    handle = robot.root_control_handle
+                    handle._impl.position += 1e-3
+                    handle._impl.wxyz += 1e-4
+                    handle.position = tuple(robot.root_frame_handle.position)
+                    handle.wxyz = tuple(robot.root_frame_handle.wxyz)
 
         show_meshes_cb.visible = load_meshes
 
@@ -734,6 +740,12 @@ def load_mjcf_into_viewer(
                 robot.show_root_control = root_control_cb.value
                 if robot.root_control_handle is not None:
                     robot.root_control_handle.visible = robot.show_root_control
+                    if robot.show_root_control and robot.root_frame_handle is not None:
+                        handle = robot.root_control_handle
+                        handle._impl.position += 1e-3
+                        handle._impl.wxyz += 1e-4
+                        handle.position = tuple(robot.root_frame_handle.position)
+                        handle.wxyz = tuple(robot.root_frame_handle.wxyz)
 
             robot.control_folder_handle = server.gui.add_folder("Joint Control")
             with robot.control_folder_handle:
