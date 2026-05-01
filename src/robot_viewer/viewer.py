@@ -187,6 +187,12 @@ def create_link_frame_visuals(server: viser.ViserServer, robot: RobotInstance) -
         with name_handle:
             server.gui.add_html(
                 (
+                    '<style>'
+                    '.mantine-Paper-root[style*="width: 18em"] {'
+                    "background: transparent !important;"
+                    "box-shadow: none !important;"
+                    "}"
+                    "</style>"
                     '<div style="'
                     "display: inline-block; width: fit-content; "
                     "background: transparent; color: #111; "
@@ -203,12 +209,6 @@ def create_link_frame_visuals(server: viser.ViserServer, robot: RobotInstance) -
         robot.frame_name_handles[name] = name_handle
 
     update_link_frame_visuals(robot)
-
-
-def ensure_link_frame_visuals(server: viser.ViserServer, robot: RobotInstance) -> None:
-    if robot.link_frame_handles and robot.frame_name_handles:
-        return
-    create_link_frame_visuals(server, robot)
 
 
 def set_ground_plane_visible(
@@ -465,15 +465,11 @@ def _build_robot_gui(
         @show_frames_cb.on_update
         def _show_frames(_: object) -> None:
             robot.show_link_frames = show_frames_cb.value
-            if robot.show_link_frames:
-                ensure_link_frame_visuals(server, robot)
             update_link_frame_visuals(robot)
 
         @show_frame_names_cb.on_update
         def _show_frame_names(_: object) -> None:
             robot.show_frame_names = show_frame_names_cb.value
-            if robot.show_frame_names:
-                ensure_link_frame_visuals(server, robot)
             update_link_frame_visuals(robot)
 
         if show_collision_cb is not None:
@@ -706,8 +702,7 @@ def load_robot_into_viewer(
         show_visual_meshes=load_meshes,
     )
 
-    if robot.show_link_frames or robot.show_frame_names:
-        create_link_frame_visuals(server, robot)
+    create_link_frame_visuals(server, robot)
 
     joint_names: list[str] = []
     initial_config: list[float] = []
@@ -795,6 +790,7 @@ def load_mjcf_into_viewer(
 
         visual_source = _MjcfVisualSource(mjcf_handle)
         frame_names = mjcf_handle.get_body_names()
+        create_link_frame_visuals(server, robot)
         _build_robot_gui(
             server, state, robot, mj_model, visual_source, status_text, frame_names
         )
