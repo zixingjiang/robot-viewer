@@ -20,7 +20,6 @@ from viser._gui_handles import (
 )
 from viser.extras import ViserUrdf
 
-from .ik import setup_cartesian_controls
 from .loader import (
     PathModelSource,
     RobotDescriptionModelSource,
@@ -35,6 +34,7 @@ from .loader import (
 )
 from .mjcf import ViserMjcf, setup_mink_ik
 from .state import RobotInstance, ViewerState
+from .urdf_to_mjcf import build_ik_mjcf
 from .utils import rotation_matrix_to_wxyz, safe_write_file
 
 _ROBOT_ROOT_RE = re.compile(r"^/robot(?:_[0-9a-f]+)?(?:/|$)")
@@ -544,14 +544,33 @@ def load_robot_into_viewer(
                 "Enable", initial_value=False
             )
             robot.cartesian_mode_checkbox = cartesian_mode_checkbox
-            setup_cartesian_controls(
-                server,
-                robot,
-                source_path,
-                state.tmp_dir,
-                status_text,
-                cartesian_mode_checkbox,
-            )
+            try:
+                import mujoco
+
+                mjcf_xml = build_ik_mjcf(source_path)
+                ik_mj_model = mujoco.MjModel.from_xml_string(mjcf_xml)
+                robot.mj_model = ik_mj_model
+
+                name_to_qposadr = {}
+                for i in range(ik_mj_model.njnt):
+                    name = mujoco.mj_id2name(
+                        ik_mj_model, mujoco.mjtObj.mjOBJ_JOINT, i
+                    )
+                    name_to_qposadr[name] = int(ik_mj_model.jnt_qposadr[i])
+                robot.qpos_adrs = [
+                    name_to_qposadr[name] for name in robot.joint_names
+                ]
+
+                setup_mink_ik(
+                    server,
+                    robot,
+                    ik_mj_model,
+                    status_text,
+                    cartesian_mode_checkbox,
+                )
+            except Exception as ik_exc:
+                cartesian_mode_checkbox.disabled = True
+                server.gui.add_text("Cartesian IK", f"Unavailable: {ik_exc!r}")
 
         robot.transform_folder_handle = server.gui.add_folder("Get Transform")
         with robot.transform_folder_handle:
@@ -676,7 +695,6 @@ def load_mjcf_into_viewer(
             mj_model=mj_model,
             mj_data=mj_data,
             mjcf_handle=mjcf_handle,
-            ik_uses_mink=True,
         )
 
         robot.tab_handle = state.tab_group_handle.add_tab(

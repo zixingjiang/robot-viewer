@@ -4,25 +4,60 @@ import os
 import xml.etree.ElementTree as ET
 
 import numpy as np
-import pinocchio as pin  # type: ignore[import]
 from viser._gui_handles import UploadedFile
 
 
 def rotation_matrix_to_wxyz(rotation: np.ndarray) -> tuple[float, float, float, float]:
-    quat_xyzw = pin.Quaternion(rotation).coeffs()  # type: ignore[attr-defined]
-    return (
-        float(quat_xyzw[3]),
-        float(quat_xyzw[0]),
-        float(quat_xyzw[1]),
-        float(quat_xyzw[2]),
-    )
+    m = rotation
+    tr = m[0, 0] + m[1, 1] + m[2, 2]
+    if tr > 0:
+        S = np.sqrt(tr + 1.0) * 2
+        qw = 0.25 * S
+        qx = (m[2, 1] - m[1, 2]) / S
+        qy = (m[0, 2] - m[2, 0]) / S
+        qz = (m[1, 0] - m[0, 1]) / S
+    elif m[0, 0] > m[1, 1] and m[0, 0] > m[2, 2]:
+        S = np.sqrt(1.0 + m[0, 0] - m[1, 1] - m[2, 2]) * 2
+        qw = (m[2, 1] - m[1, 2]) / S
+        qx = 0.25 * S
+        qy = (m[0, 1] + m[1, 0]) / S
+        qz = (m[0, 2] + m[2, 0]) / S
+    elif m[1, 1] > m[2, 2]:
+        S = np.sqrt(1.0 + m[1, 1] - m[0, 0] - m[2, 2]) * 2
+        qw = (m[0, 2] - m[2, 0]) / S
+        qx = (m[0, 1] + m[1, 0]) / S
+        qy = 0.25 * S
+        qz = (m[1, 2] + m[2, 1]) / S
+    else:
+        S = np.sqrt(1.0 + m[2, 2] - m[0, 0] - m[1, 1]) * 2
+        qw = (m[1, 0] - m[0, 1]) / S
+        qx = (m[0, 2] + m[2, 0]) / S
+        qy = (m[1, 2] + m[2, 1]) / S
+        qz = 0.25 * S
+    return (float(qw), float(qx), float(qy), float(qz))
 
 
 def wxyz_to_rotation_matrix(wxyz: tuple[float, float, float, float]) -> np.ndarray:
-    quat = pin.Quaternion(  # type: ignore[attr-defined]
-        float(wxyz[0]), float(wxyz[1]), float(wxyz[2]), float(wxyz[3])
+    w, x, y, z = wxyz
+    return np.array(
+        [
+            [
+                1 - 2 * (y * y + z * z),
+                2 * (x * y - w * z),
+                2 * (x * z + w * y),
+            ],
+            [
+                2 * (x * y + w * z),
+                1 - 2 * (x * x + z * z),
+                2 * (y * z - w * x),
+            ],
+            [
+                2 * (x * z - w * y),
+                2 * (y * z + w * x),
+                1 - 2 * (x * x + y * y),
+            ],
+        ]
     )
-    return quat.matrix()
 
 
 def safe_write_file(uploaded_file: UploadedFile, tmp_dir: str) -> str:
@@ -33,42 +68,3 @@ def safe_write_file(uploaded_file: UploadedFile, tmp_dir: str) -> str:
     with open(out_path, "wb") as file_handle:
         file_handle.write(uploaded_file.content)
     return out_path
-
-
-def sanitize_urdf_for_pinocchio(path: str, tmp_dir: str) -> tuple[str, int]:
-    """Return a URDF path safe for Pinocchio, removing duplicate global materials."""
-
-    try:
-        tree = ET.parse(path)
-        root = tree.getroot()
-    except Exception:
-        return path, 0
-
-    if root.tag != "robot":
-        return path, 0
-
-    seen_materials: set[str] = set()
-    removed_count = 0
-
-    for child in list(root):
-        if child.tag != "material":
-            continue
-
-        material_name = child.attrib.get("name")
-        if not material_name:
-            continue
-
-        if material_name in seen_materials:
-            root.remove(child)
-            removed_count += 1
-            continue
-
-        seen_materials.add(material_name)
-
-    if removed_count == 0:
-        return path, 0
-
-    out_name = f"pinocchio_sanitized_{os.path.basename(path)}"
-    out_path = os.path.join(tmp_dir, out_name)
-    tree.write(out_path, encoding="utf-8", xml_declaration=True)
-    return out_path, removed_count

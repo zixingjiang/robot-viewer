@@ -389,24 +389,15 @@ def setup_mink_ik(
 
     try:
         configuration = mink.Configuration(mj_model)
-        robot.mink_configuration = configuration
-        robot.mink_solver = (
+        robot.ik_configuration = configuration
+        robot.ik_solver = (
             "daqp" if "daqp" in qpsolvers.available_solvers
             else qpsolvers.available_solvers[0]
         )
 
-        pin_frame_names: set[str] = set()
-        if hasattr(mj_model, "frames"):
-            for frame in mj_model.frames:
-                name = mj_id2name(mj_model, mjtObj.mjOBJ_BODY, int(frame.bodyid))
-                if name:
-                    pin_frame_names.add(str(frame.name))
-
-        frame_options = sorted(pin_frame_names)
-        if not frame_options:
-            frame_options = [
-                _body_name(mj_model, i) for i in range(mj_model.nbody)
-            ]
+        frame_options = sorted(
+            _body_name(mj_model, i) for i in range(1, mj_model.nbody)
+        )
         if not frame_options:
             raise RuntimeError("No valid frames found for Cartesian target")
 
@@ -460,18 +451,18 @@ def setup_mink_ik(
 
         def _sync_configuration_from_sliders() -> None:
             if (
-                robot.mink_configuration is None
+                robot.ik_configuration is None
                 or robot.slider_handles is None
                 or robot.qpos_adrs is None
             ):
                 return
-            q = np.array(robot.mink_configuration.q, copy=True)
+            q = np.array(robot.ik_configuration.q, copy=True)
             for adr, slider in zip(robot.qpos_adrs, robot.slider_handles):
                 q[adr] = slider.value
-            robot.mink_configuration.update(q)
+            robot.ik_configuration.update(q)
 
         def _set_ik_tasks_from_current_configuration(frame_name: str) -> None:
-            if robot.mink_configuration is None:
+            if robot.ik_configuration is None:
                 return
 
             with robot.ik_lock:
@@ -480,21 +471,34 @@ def setup_mink_ik(
                     frame_type="body",
                     position_cost=robot.ik_frame_position_cost,
                     orientation_cost=robot.ik_frame_orientation_cost,
+                    lm_damping=1.0,
                 )
                 posture_task = mink.PostureTask(mj_model, cost=robot.ik_posture_cost)
                 posture_task.set_target_from_configuration(
-                    robot.mink_configuration
+                    robot.ik_configuration
                 )
                 config_limit = mink.ConfigurationLimit(mj_model)
 
-                T_world = robot.mink_configuration.get_transform_frame_to_world(
+                T_world = robot.ik_configuration.get_transform_frame_to_world(
                     frame_name, frame_type="body"
                 )
-                T_init = SE3.from_matrix(T_world.as_matrix())
-                frame_task.set_target(T_init)
 
-                robot.mink_tasks = [frame_task, posture_task]
-                robot.mink_limits = [config_limit]
+                if robot.urdf is not None:
+                    try:
+                        viewer_pose = robot.urdf._urdf.get_transform(
+                            frame_name
+                        )
+                        if viewer_pose is not None:
+                            T_world = SE3.from_matrix(
+                                np.asarray(viewer_pose, dtype=float)
+                            )
+                    except Exception:
+                        pass
+
+                frame_task.set_target(T_world)
+
+                robot.ik_tasks = [frame_task, posture_task]
+                robot.ik_limits = [config_limit]
 
             if robot.cartesian_target_handle is not None:
                 robot.cartesian_target_handle.position = tuple(
@@ -507,18 +511,26 @@ def setup_mink_ik(
         @frame_task_position_cost_slider.on_update
         def _on_position_cost(_event: object) -> None:
             robot.ik_frame_position_cost = frame_task_position_cost_slider.value
+            if robot.ik_tasks:
+                robot.ik_tasks[0].set_position_cost(robot.ik_frame_position_cost)
 
         @frame_task_orientation_cost_slider.on_update
         def _on_orientation_cost(_event: object) -> None:
             robot.ik_frame_orientation_cost = frame_task_orientation_cost_slider.value
+            if robot.ik_tasks:
+                robot.ik_tasks[0].set_orientation_cost(
+                    robot.ik_frame_orientation_cost
+                )
 
         @posture_cost_slider.on_update
         def _on_posture_cost(_event: object) -> None:
             robot.ik_posture_cost = posture_cost_slider.value
+            if len(robot.ik_tasks) > 1:
+                robot.ik_tasks[1].set_cost(robot.ik_posture_cost)
 
         @cartesian_target_handle.on_update
         def _on_target_update(event: viser.TransformControlsEvent) -> None:
-            frame_task = robot.mink_tasks[0] if robot.mink_tasks else None
+            frame_task = robot.ik_tasks[0] if robot.ik_tasks else None
             if frame_task is None:
                 return
             new_target = SE3.from_rotation_and_translation(
@@ -577,19 +589,13 @@ def mink_ik_step(robot: RobotInstance, dt: float) -> np.ndarray | None:
     if not _MINK_AVAILABLE:
         return None
 
-    try:
-        with robot.ik_lock:
-            velocity = mink.solve_ik(
-                robot.mink_configuration,
-                robot.mink_tasks,
-                dt,
-                solver=robot.mink_solver,
-                limits=robot.mink_limits,
-            )
-            robot.mink_configuration.integrate_inplace(velocity, dt)
-            return np.array(robot.mink_configuration.q, copy=True)
-    except Exception:
-        robot.ik_enabled = False
-        if robot.cartesian_mode_checkbox is not None:
-            robot.cartesian_mode_checkbox.value = False
-        return None
+    with robot.ik_lock:
+        velocity = mink.solve_ik(
+            robot.ik_configuration,
+            robot.ik_tasks,
+            dt,
+            solver=robot.ik_solver,
+            limits=robot.ik_limits,
+        )
+        robot.ik_configuration.integrate_inplace(velocity, dt)
+        return np.array(robot.ik_configuration.q, copy=True)

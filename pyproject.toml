@@ -7,8 +7,7 @@ authors = [{ name = "Zixing Jiang", email = "ZixingJiang@outlook.com" }]
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "mypy>=1.19.1",
-    "pin-pink>=4.1.0",
-    "qpsolvers[open-source-solvers,daqp]>=4.10.0",
+    "qpsolvers[daqp]>=4.10.0",
     "robot-descriptions>=1.23.0",
     "tyro>=1.0.9",
     "viser>=1.0.24",

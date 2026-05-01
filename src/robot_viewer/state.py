@@ -4,9 +4,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any
 
-import pink
 import viser
-from pink.tasks import DampingTask, FrameTask, PostureTask
 from viser._gui_handles import (
     GuiButtonHandle,
     GuiCheckboxHandle,
@@ -56,17 +54,13 @@ class RobotInstance:
     cartesian_target_handle: TransformControlsHandle | None = None
 
     ik_enabled: bool = False
-    ik_configuration: pink.Configuration | None = None
+    ik_configuration: Any = None
     ik_tasks: list[Any] = field(default_factory=list)
-    ik_frame_task: FrameTask | None = None
-    ik_posture_task: PostureTask | None = None
-    ik_damping_task: DampingTask | None = None
-    ik_joint_name_to_q_index: dict[str, int] = field(default_factory=dict)
+    ik_limits: list[Any] = field(default_factory=list)
     ik_solver: str | None = None
     ik_frame_position_cost: float = 1.0
     ik_frame_orientation_cost: float = 1.0
     ik_posture_cost: float = 1e-3
-    ik_damping_cost: float = 1e-3
     ik_lock: threading.Lock = field(default_factory=threading.Lock)
 
     transform_folder_handle: GuiFolderHandle | None = None
@@ -85,11 +79,6 @@ class RobotInstance:
     mj_model: Any = None
     mj_data: Any = None
     mjcf_handle: Any = None
-    ik_uses_mink: bool = False
-    mink_configuration: Any = None
-    mink_tasks: list[Any] = field(default_factory=list)
-    mink_limits: list[Any] = field(default_factory=list)
-    mink_solver: str | None = None
 
 
 @dataclass
