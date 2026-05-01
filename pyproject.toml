@@ -1,7 +1,7 @@
 [project]
 name = "robot-viewer"
 version = "0.1.0"
-description = "Add your description here"
+description = "A simple web-based robot viewer powered by Viser"
 readme = "README.md"
 authors = [{ name = "Zixing Jiang", email = "ZixingJiang@outlook.com" }]
 requires-python = ">=3.13,<3.14"
