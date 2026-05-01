@@ -40,6 +40,14 @@ It is recommended to run `rv` with [uv](https://docs.astral.sh/uv/getting-starte
 
 Pass `--help` to `rv` to see all available CLI options.
 
+## Gallery
+
+| Visual | Frames |
+|---|---|
+| ![Visual](media/visual.png) | ![Frames](media/frames.png) |
+| **Collision** | **Inverse Kinematics** |
+| ![Collision](media/collision.png) | ![IK](media/ik.png) |
+
 ## Acknowledgements
 
 - `rv` draws inspiration from many excellent projects from the community, including [urdf-viz](https://github.com/openrr/urdf-viz), [pink](https://github.com/stephane-caron/pink), and [mjviser](https://github.com/mujocolab/mjviser).
