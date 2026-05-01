@@ -132,8 +132,8 @@ def build_ik_mjcf(urdf_path: str) -> str:
                 if mj_type in ("hinge", "slide"):
                     attrs["axis"] = axis_xyz
                 if limit is not None:
-                    lower = limit.get("lower", "-3.14")
-                    upper = limit.get("upper", "3.14")
+                    lower = limit.get("lower", str(-np.pi))
+                    upper = limit.get("upper", str(np.pi))
                     attrs["range"] = f"{lower} {upper}"
                 ET.SubElement(body, "joint", **attrs)
 

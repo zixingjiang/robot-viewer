@@ -144,7 +144,7 @@ def load_mjcf(path: str) -> tuple[Any, Any]:
         import mujoco
     except ImportError as exc:
         raise RuntimeError(
-            "MJCF support requires 'mujoco'. Install with: pip install mujoco mink trimesh"
+            "MJCF support requires 'mujoco'. Install with: pip install mujoco trimesh"
         ) from exc
 
     model = mujoco.MjModel.from_xml_path(path)
@@ -268,7 +268,7 @@ def load_robot_description_mjcf(description_name: str) -> tuple[str, Any, Any, s
         import mujoco
     except ImportError as exc:
         raise RuntimeError(
-            "MJCF support requires 'mujoco'. Install with: pip install mujoco mink trimesh"
+            "MJCF support requires 'mujoco'. Install with: pip install mujoco trimesh"
         ) from exc
 
     resolved_name, mjcf_path = _resolve_robot_description_mjcf_path(description_name)
