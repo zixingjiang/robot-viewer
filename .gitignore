@@ -8,9 +8,3 @@ wheels/
 
 # Virtual environments
 .venv
-.pixi/
-
-
-thirdparty
-plan.md
-.worktrees/
