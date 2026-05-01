@@ -43,7 +43,7 @@ Pass `--help` to `rv` to see all available CLI options.
 ## Gallery
 
 | Visual | Frames |
-|---|---|
+|:---:|:---:|
 | ![Visual](media/visual.png) | ![Frames](media/frames.png) |
 | **Collision** | **Inverse Kinematics** |
 | ![Collision](media/collision.png) | ![IK](media/ik.png) |
